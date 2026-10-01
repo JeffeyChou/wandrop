@@ -104,6 +104,41 @@ export function openInvitesModal() {
   refresh();
 }
 
+export function openPasswordModal() {
+  const err = h('p', { class: 'form-error', role: 'alert' });
+  const current = h('input', { type: 'password', autocomplete: 'current-password', required: true, maxlength: 128 });
+  const next = h('input', { type: 'password', autocomplete: 'new-password', required: true, minlength: 8, maxlength: 128 });
+  const confirm = h('input', { type: 'password', autocomplete: 'new-password', required: true, minlength: 8, maxlength: 128 });
+  const submit = h('button', { type: 'submit', class: 'btn primary block' }, 'Change password');
+  let m;
+  const form = h('form', {
+    class: 'auth-form',
+    onSubmit: async (e) => {
+      e.preventDefault();
+      err.textContent = '';
+      if (next.value !== confirm.value) {
+        err.textContent = 'New passwords do not match';
+        return;
+      }
+      submit.disabled = true;
+      try {
+        await api('POST', '/api/auth/password', { current: current.value, next: next.value });
+        m.close();
+        toast('Password changed; other sessions were signed out', 'ok');
+      } catch (ex) {
+        err.textContent = ex.message;
+      } finally {
+        submit.disabled = false;
+      }
+    },
+  },
+  h('label', { class: 'field' }, h('span', {}, 'Current password'), current),
+  h('label', { class: 'field' }, h('span', {}, 'New password'), next),
+  h('label', { class: 'field' }, h('span', {}, 'Confirm new password'), confirm),
+  err, submit);
+  m = modal('Change password', form);
+}
+
 export async function logout() {
   await api('POST', '/api/auth/logout');
   location.reload();
@@ -121,6 +156,7 @@ export function accountChip(me) {
       const m = modal(me.name, h('div', { class: 'stack' },
         h('p', { class: 'muted' }, me.role === 'admin' ? 'Administrator' : 'Member: you can upload files.'),
         me.role === 'admin' ? h('button', { type: 'button', class: 'btn', onClick: () => { m.close(); openInvitesModal(); } }, icon('key'), 'Manage invite codes') : null,
+        h('button', { type: 'button', class: 'btn', onClick: () => { m.close(); openPasswordModal(); } }, icon('lock'), 'Change password'),
         h('button', { type: 'button', class: 'btn danger', onClick: logout }, icon('logout'), 'Log out')));
     },
   }, icon('user'), h('span', { class: 'chip-text' }, me.name), h('span', { class: 'chip-tag' }, me.role === 'admin' ? 'admin' : 'member'));

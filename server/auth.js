@@ -30,6 +30,7 @@ const DUMMY_HASH = await hashPassword(randomId(16));
 
 const q = {
   userByName: db.prepare('SELECT * FROM users WHERE username = ?'),
+  userById: db.prepare('SELECT * FROM users WHERE id = ?'),
   insertUser: db.prepare('INSERT INTO users (username, pass_hash, role, created_at) VALUES (?, ?, ?, ?)'),
   countAdmins: db.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'admin'"),
   insertSession: db.prepare('INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)'),
@@ -71,7 +72,7 @@ export async function ensureAdmin(log) {
   }
   q.insertUser.run(username, await hashPassword(password), 'admin', now());
   if (adminPassword) log.info(`Admin account "${username}" created`);
-  else log.warn(`Admin account "${username}" created with generated password: ${password}  (shown once; change it with "node server/admin.js passwd ${username}")`);
+  else log.warn(`Admin account "${username}" created with generated password: ${password}  (shown once; change it under the account menu after logging in)`);
 }
 
 /** Replace a user's password and sign out all of their sessions. */
@@ -141,6 +142,19 @@ export default async function authRoutes(app) {
     const user = q.userByName.get(username);
     const ok = await verifyPassword(password, user?.pass_hash ?? DUMMY_HASH);
     if (!user || !ok) return reply.code(401).send({ error: 'Wrong username or password' });
+    startSession(reply, user.id);
+    return { ok: true };
+  });
+
+  app.post('/api/auth/password', { config: authLimit }, async (request, reply) => {
+    if (!request.actor.isUser) return reply.code(401).send({ error: 'Log in first' });
+    const { current, next } = request.body ?? {};
+    if (!isStr(current, 1, 128)) return reply.code(400).send({ error: 'Current password required' });
+    if (!isStr(next, 8, 128)) return reply.code(400).send({ error: 'New password must be 8-128 characters' });
+    const user = q.userById.get(request.actor.userId);
+    if (!(await verifyPassword(current, user.pass_hash))) return reply.code(403).send({ error: 'Current password is wrong' });
+    // Signs out every session, including this one, then starts a fresh session here.
+    await setPassword(user.username, next);
     startSession(reply, user.id);
     return { ok: true };
   });

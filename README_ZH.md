@@ -3,8 +3,8 @@
 [English](README.md) · 简体中文
 
 <p align="center">
-  <img src="docs/screenshots/home-dark.png" width="49%" alt="首页（暗色）">
-  <img src="docs/screenshots/channel-dark.png" width="49%" alt="频道">
+  <img src="docs/screenshots/home-dark.webp" width="49%" alt="首页（暗色）">
+  <img src="docs/screenshots/channel-dark.webp" width="49%" alt="频道">
 </p>
 
 网页剪切板 + 临时文件转存中心，以 IM 频道的形式工作。每个频道有一个 7 位 `[0-9a-z]` 标识符（如 `/c/k2z0vm2`），访客自动获得随机用户名。所有内容都会自动过期销毁。
@@ -41,7 +41,7 @@ ALLOWED_ORIGINS=https://drop.example.com
 
 注册必须使用邀请码。首个管理员在首次启动时创建：
 
-- **自动生成密码（推荐）**：`ADMIN_PASSWORD` 留空，随机密码会在日志中打印一次。
+- **自动生成密码（推荐）**：`ADMIN_PASSWORD` 留空，随机密码会在日志中打印一次；登录后可在账号菜单 → *Change password* 修改。
 - **Docker secret**：设置 `ADMIN_PASSWORD_FILE=/run/secrets/…`（见 `docker-compose.yml` 中注释掉的 `secrets:`）。
 - **明文变量**：`ADMIN_PASSWORD=…` 仍可用，但 `change-me-please` 等占位密码会被拒绝。
 
@@ -54,7 +54,7 @@ ALLOWED_ORIGINS=https://drop.example.com
 docker compose exec wandrop /nodejs/bin/node server/admin.js invite 5 24   # 5 次可用，24 小时有效
 docker compose exec wandrop /nodejs/bin/node server/admin.js invites
 docker compose exec wandrop /nodejs/bin/node server/admin.js users
-docker compose exec wandrop /nodejs/bin/node server/admin.js passwd admin   # 重置为随机密码并登出所有会话
+docker compose exec wandrop /nodejs/bin/node server/admin.js passwd admin   # 忘记密码时：重置为随机密码并登出所有会话
 ```
 
 ## 与其他开源项目对比

@@ -23,11 +23,11 @@ English · [简体中文](README_ZH.md)
 </div>
 
 <p align="center">
-  <img src="docs/screenshots/home-dark.png" width="49%" alt="Home page, dark theme">
-  <img src="docs/screenshots/home-light.png" width="49%" alt="Home page, light theme">
+  <img src="docs/screenshots/home-dark.webp" width="49%" alt="Home page, dark theme">
+  <img src="docs/screenshots/home-light.webp" width="49%" alt="Home page, light theme">
 </p>
 <p align="center">
-  <img src="docs/screenshots/channel-dark.png" width="80%" alt="A channel with plain text, Markdown with a table and KaTeX, and a file">
+  <img src="docs/screenshots/channel-dark.webp" width="80%" alt="A channel with plain text, Markdown with a table and KaTeX, and a file">
 </p>
 
 ## Why WanDrop?
@@ -48,7 +48,7 @@ You need to move a command, a log snippet or a build artefact from one machine t
 | ✏️ **Editing** | Edit your own messages (`✎ edited at hh:mm:ss`), one-click copy, delete |
 | 📦 **Files** | Drag & drop or paste to upload, SHA-256 shown, per-file download cap and lifetime |
 | ⏳ **Lifetimes** | Channel owner sets message retention (or "until channel ends") and channel lifetime |
-| 🔐 **Accounts** | Invite-only registration, admin UI and CLI for invite codes |
+| 🔐 **Accounts** | Invite-only registration, self-service password change, admin UI and CLI for invite codes |
 | 🎨 **UI** | Light / dark theme, animated ASCII background, works on phones |
 
 ### Default rules
@@ -107,7 +107,7 @@ The proxy must forward WebSocket upgrades on `/ws` and allow request bodies of a
 
 Registration requires an invite code. The first admin is created on first boot:
 
-- **Generated password (recommended).** Leave `ADMIN_PASSWORD` empty. A random password is printed once in the logs.
+- **Generated password (recommended).** Leave `ADMIN_PASSWORD` empty. A random password is printed once in the logs; log in and change it under the account menu → *Change password*.
 - **Docker secret.** Set `ADMIN_PASSWORD_FILE=/run/secrets/…` (see the commented `secrets:` block in `docker-compose.yml`).
 - **Plain variable.** `ADMIN_PASSWORD=…` works, but placeholders such as `change-me-please` are rejected.
 
@@ -119,7 +119,7 @@ Manage invites in the web UI (account chip → *Manage invite codes*) or with th
 docker compose exec wandrop /nodejs/bin/node server/admin.js invite 5 24    # 5 uses, valid 24 h
 docker compose exec wandrop /nodejs/bin/node server/admin.js invites
 docker compose exec wandrop /nodejs/bin/node server/admin.js users
-docker compose exec wandrop /nodejs/bin/node server/admin.js passwd admin   # new random password, signs out all sessions
+docker compose exec wandrop /nodejs/bin/node server/admin.js passwd admin   # forgot it? new random password, signs out all sessions
 ```
 
 ## Security
@@ -127,7 +127,7 @@ docker compose exec wandrop /nodejs/bin/node server/admin.js passwd admin   # ne
 - **File names never reach a path or a command.** Blobs are stored under random server-generated IDs. The original name is NFC-normalised, stripped of control characters, bidi overrides (RLO etc.), path separators and shell metacharacters, stored only in the database and always rendered as text. The codebase never calls `child_process`.
 - **Downloads** are always `application/octet-stream` with `Content-Disposition: attachment` (RFC 5987), `nosniff` and `CSP: sandbox`, so uploaded HTML/SVG is never rendered as a page on this origin. A download first exchanges a POST for a 60-second single-use ticket, so link previews and prefetchers cannot burn download counts. The counter is incremented atomically in SQLite, so concurrent requests cannot exceed the limit.
 - **Uploads** are streamed and metered; exceeding the limit aborts and deletes the temp file immediately. Per-channel quota, global quota and files-per-channel limits apply.
-- **Web:** strict CSP (no inline scripts), Markdown with raw HTML disabled and DOMPurify sanitisation, HttpOnly + SameSite cookies, same-origin checks for writes and WebSocket upgrades, rate limits on login, registration, upload and send, scrypt password hashing.
+- **Web:** strict CSP (no inline scripts, connections only to the same origin), Markdown with raw HTML disabled and DOMPurify sanitisation, HttpOnly + SameSite cookies, same-origin checks for writes and WebSocket upgrades, rate limits on login, registration, password change, upload and send, scrypt password hashing. Changing a password signs out every other session.
 - **Container:** distroless runtime (no shell, no package manager), non-root (uid 65532), read-only root filesystem, `cap_drop: ALL`, `no-new-privileges`, pids/memory/CPU limits. The only writable places are the `/data` volume (SQLite + files, mode 0600) and a `noexec` `/tmp` tmpfs.
 
 ## Configuration

@@ -7,7 +7,8 @@ const CSP = [
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob:",
   "font-src 'self' data:",
-  "connect-src 'self' ws: wss:",
+  // CSP3 'self' also matches ws:/wss: on the same host, so no other socket hosts are allowed.
+  "connect-src 'self'",
   "object-src 'none'",
   "base-uri 'none'",
   "form-action 'self'",
