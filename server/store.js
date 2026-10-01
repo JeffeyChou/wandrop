@@ -37,8 +37,9 @@ export const q = {
   countDownload: db.prepare(`UPDATE files SET downloads = downloads + 1
     WHERE id = ? AND (max_downloads = 0 OR downloads < max_downloads) AND (expires_at IS NULL OR expires_at > ?)`),
   deleteFile: db.prepare('DELETE FROM files WHERE id = ?'),
-  expiredFiles: db.prepare(`SELECT id, channel_id FROM files
-    WHERE (expires_at IS NOT NULL AND expires_at <= ?) OR (max_downloads > 0 AND downloads >= max_downloads)`),
+  // Files that used up their download limit stay listed (and keep their blob) until they expire,
+  // so the uploader can still raise the limit.
+  expiredFiles: db.prepare('SELECT id, channel_id FROM files WHERE expires_at IS NOT NULL AND expires_at <= ?'),
 };
 
 export const getChannel = (id) => q.channel.get(id, Date.now());

@@ -35,7 +35,7 @@ English · [简体中文](README_ZH.md)
 You need to move a command, a log snippet or a build artefact from one machine to another *right now*, and you do not want it to live forever in a chat history or a cloud drive. WanDrop gives you a throwaway room for exactly that:
 
 - **No setup for guests.** Visitors get a random name (`vivid-hare-02`) and can read, paste and download immediately.
-- **Everything expires.** Messages fade after 5 minutes, channels after 1 hour, files after 2 downloads (all configurable).
+- **Everything expires.** Messages fade after 5 minutes, channels after 1 hour, files are locked after 2 downloads (all configurable).
 - **Async by design.** Unlike WebRTC tools, the receiver does not have to be online when you send.
 - **Controlled uploads.** Only invited, signed-in users can upload files, so a public instance is not an open file host.
 
@@ -46,7 +46,7 @@ You need to move a command, a log snippet or a build artefact from one machine t
 | 💬 **Channels** | 7-character `[0-9a-z]` IDs (`/c/k2z0vm2`), real-time sync over WebSocket, presence avatars |
 | 📝 **Rich text** | Per-message Plain / Markdown switch, GFM tables, KaTeX (`$…$`, `$$…$$`, `\(…\)`, `\[…\]`), code blocks with copy button |
 | ✏️ **Editing** | Edit your own messages (`✎ edited at hh:mm:ss`), one-click copy, delete |
-| 📦 **Files** | Drag & drop or paste to upload, SHA-256 shown, per-file download cap and lifetime |
+| 📦 **Files** | Drag & drop or paste to upload, SHA-256 shown, per-file download cap and lifetime; a used-up file stays listed so the uploader can extend it |
 | ⏳ **Lifetimes** | Channel owner sets message retention (or "until channel ends") and channel lifetime |
 | 🔐 **Accounts** | Invite-only registration, self-service password change, admin UI and CLI for invite codes |
 | 🎨 **UI** | Light / dark theme, animated ASCII background, works on phones |
@@ -57,7 +57,7 @@ You need to move a command, a log snippet or a build artefact from one machine t
 |---|---|
 | Message retention | 5 minutes (owner can change, or keep until the channel ends) |
 | Channel lifetime | 1 hour (owner can change: up to 24 h for guests, 7 days for signed-in users) |
-| Files | Upload requires an account; anyone in the channel can download. Deleted after 2 downloads or when the channel ends |
+| Files | Upload requires an account; anyone in the channel can download. Locked after 2 downloads (the uploader can raise the limit); deleted when their lifetime or the channel ends |
 | Max file size | 100 MB |
 
 ## How it compares

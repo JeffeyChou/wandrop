@@ -211,10 +211,13 @@ export async function mountChannel(app, me, channelId) {
   function fileEl(f) {
     const mine = f.uploaderTag === me.tag;
     const ext = (f.name.includes('.') ? f.name.split('.').pop() : 'file').slice(0, 4).toUpperCase();
-    const left = f.maxDownloads === 0 ? null : f.maxDownloads - f.downloads;
-    const dlBtn = h('button', { type: 'button', class: 'btn primary sm', onClick: () => download(f, dlBtn) }, icon('download'), 'Download');
+    const left = f.maxDownloads === 0 ? null : Math.max(f.maxDownloads - f.downloads, 0);
+    const exhausted = left === 0;
+    const dlBtn = exhausted
+      ? h('button', { type: 'button', class: 'btn sm', disabled: true, title: 'The uploader can raise the limit in file settings' }, icon('lock'), 'Limit reached')
+      : h('button', { type: 'button', class: 'btn primary sm', onClick: () => download(f, dlBtn) }, icon('download'), 'Download');
 
-    return h('article', { class: `file glass ${mine ? 'mine' : ''}`, dataset: { id: f.id, t: f.createdAt } },
+    return h('article', { class: `file glass ${mine ? 'mine' : ''} ${exhausted ? 'exhausted' : ''}`, dataset: { id: f.id, t: f.createdAt } },
       h('div', { class: 'file-ext', style: { '--h': hueOf(f.sha256) } }, ext),
       h('div', { class: 'file-main' },
         h('div', { class: 'file-name', title: f.name }, f.name),
@@ -224,8 +227,8 @@ export async function mountChannel(app, me, channelId) {
           h('span', {}, `by ${f.uploaderName}`),
           h('span', {}, clock(f.createdAt))),
         h('div', { class: 'file-chips' },
-          h('span', { class: `life ${left === 1 ? 'warn' : ''}`, title: 'Downloads remaining' }, icon(left === null ? 'infinity' : 'download'),
-            left === null ? 'unlimited' : `${left} / ${f.maxDownloads} left`),
+          h('span', { class: `life ${left !== null && left <= 1 ? 'warn' : ''}`, title: 'Downloads remaining' }, icon(left === null ? 'infinity' : 'download'),
+            left === null ? 'unlimited' : exhausted ? `download limit reached (${f.downloads}/${f.maxDownloads})` : `${left} / ${f.maxDownloads} left`),
           lifeChip(f.createdAt, f.expiresAt, 'until channel ends'))),
       h('div', { class: 'file-actions' },
         dlBtn,
@@ -418,7 +421,9 @@ export async function mountChannel(app, me, channelId) {
 
   function openFileSettings(f) {
     const maxIn = h('input', { type: 'number', min: 0, max: S.limits.maxDownloadsCap });
-    maxIn.value = f.maxDownloads;
+    const exhausted = f.maxDownloads > 0 && f.downloads >= f.maxDownloads;
+    // An exhausted file needs a higher limit to be downloadable again, so suggest one more download.
+    maxIn.value = exhausted ? f.downloads + 1 : f.maxDownloads;
     const remainingSec = Math.floor((S.channel.expiresAt - serverNow()) / 1000);
     const ttlSel = select(FILE_TTL_OPTIONS.filter((s) => s <= remainingSec), '', (s) => `${duration(s)} from now`,
       [['', f.expiresAt ? `Keep current (${remaining(f.expiresAt - serverNow())} left)` : 'Keep: until channel dissolves'], ['channel', 'Until channel dissolves']]);
@@ -439,7 +444,9 @@ export async function mountChannel(app, me, channelId) {
     },
     h('p', { class: 'file-name' }, f.name),
     h('label', { class: 'field' }, h('span', {}, 'Download limit'), maxIn,
-      h('small', { class: 'muted' }, `0 = unlimited. Downloaded ${f.downloads}× so far; the file is destroyed when the limit is reached.`)),
+      h('small', { class: 'muted' }, exhausted
+        ? `Limit reached after ${f.downloads} download${f.downloads === 1 ? '' : 's'}. Set a higher limit (or 0 = unlimited) to allow more.`
+        : `0 = unlimited. Downloaded ${f.downloads}× so far. At the limit the file stays listed but can no longer be downloaded.`)),
     h('label', { class: 'field' }, h('span', {}, 'Self-destruct'), ttlSel),
     err,
     h('button', { type: 'submit', class: 'btn primary block' }, 'Save')));

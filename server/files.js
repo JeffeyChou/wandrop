@@ -157,6 +157,7 @@ export default async function fileRoutes(app) {
     if (!channel) return;
     const f = loadFile(request, reply, channel);
     if (!f) return;
+    if (f.max_downloads > 0 && f.downloads >= f.max_downloads) return reply.code(410).send({ error: 'Download limit reached' });
     const token = randomId(24);
     tickets.set(token, { fileId: f.id, exp: now() + TICKET_TTL_MS });
     return { url: `/dl/${token}` };
@@ -184,12 +185,7 @@ export default async function fileRoutes(app) {
       return gone();
     }
 
-    const updated = q.fileById.get(f.id);
-    if (updated.max_downloads > 0 && updated.downloads >= updated.max_downloads) {
-      destroyFile(updated); // the open handle keeps the data readable until streaming ends
-    } else {
-      broadcast(f.channel_id, 'file:update', { file: serializeFile(updated) });
-    }
+    broadcast(f.channel_id, 'file:update', { file: serializeFile(q.fileById.get(f.id)) });
 
     reply
       .header('Content-Type', 'application/octet-stream')
