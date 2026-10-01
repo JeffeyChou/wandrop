@@ -383,7 +383,6 @@ export async function mountChannel(app, me, channelId) {
 
   // ---------- composer ----------
   function buildComposer() {
-    let format = 'plain';
     const ta = h('textarea', {
       class: 'composer-input', rows: 1, placeholder: 'Paste or type…', 'aria-label': 'Message',
     });
@@ -391,14 +390,13 @@ export async function mountChannel(app, me, channelId) {
     const attach = iconButton('clip', 'Attach files', () => (me.isUser ? fileInput.click() : openAuthModal('Log in to upload files. Guests can still download.')));
     const sendBtn = h('button', { type: 'button', class: 'btn primary send', 'aria-label': 'Send' }, icon('send'), h('span', { class: 'send-label' }, 'Send'));
     const hint = h('div', { class: 'composer-hint' });
-    const mdSwitch = switchToggle('MD', false, (on) => { format = on ? 'md' : 'plain'; }, 'Send as Markdown');
 
     async function send() {
       const body = ta.value;
       if (!body.trim()) return;
       sendBtn.disabled = true;
       try {
-        const { message } = await api('POST', `/api/channels/${channelId}/messages`, { body, format });
+        const { message } = await api('POST', `/api/channels/${channelId}/messages`, { body, format: 'plain' });
         ta.value = '';
         autoGrow(ta);
         if (!S.messages.has(message.id)) {
@@ -426,7 +424,7 @@ export async function mountChannel(app, me, channelId) {
     fileInput.addEventListener('change', () => { uploadFiles([...fileInput.files]); fileInput.value = ''; });
 
     const el = h('footer', { class: 'composer glass' },
-      h('div', { class: 'composer-row' }, attach, ta, h('div', { class: 'composer-actions' }, mdSwitch, sendBtn)),
+      h('div', { class: 'composer-row' }, attach, ta, h('div', { class: 'composer-actions' }, sendBtn)),
       hint, fileInput);
 
     return {
