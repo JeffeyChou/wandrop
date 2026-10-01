@@ -87,6 +87,23 @@ CREATE TABLE IF NOT EXISTS uploads (
 );
 CREATE INDEX IF NOT EXISTS uploads_channel ON uploads(channel_id);
 CREATE INDEX IF NOT EXISTS uploads_uploader ON uploads(uploader_key);
+
+-- Audit log of everyone who opened a channel, visible to admins. Kept until the channel is destroyed.
+CREATE TABLE IF NOT EXISTS channel_visits (
+  channel_id  TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+  actor_key   TEXT NOT NULL,
+  actor_name  TEXT NOT NULL,
+  is_user     INTEGER NOT NULL,
+  ip          TEXT NOT NULL,
+  country     TEXT,
+  user_agent  TEXT NOT NULL,
+  timezone    TEXT,
+  language    TEXT,
+  visits      INTEGER NOT NULL DEFAULT 1,
+  first_seen  INTEGER NOT NULL,
+  last_seen   INTEGER NOT NULL,
+  PRIMARY KEY (channel_id, actor_key, ip, user_agent)
+);
 `);
 
 export default db;

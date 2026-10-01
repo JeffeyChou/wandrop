@@ -21,6 +21,12 @@ export function closeRoom(channelId) {
   rooms.delete(channelId);
 }
 
+/** Number of distinct actors currently connected to a channel. */
+export function onlineCount(channelId) {
+  const room = rooms.get(channelId);
+  return room ? new Set([...room].map(({ actor }) => actor.tag)).size : 0;
+}
+
 function presence(channelId) {
   const room = rooms.get(channelId);
   if (!room) return;

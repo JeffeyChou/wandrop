@@ -7,6 +7,7 @@ import { renderMarkdown, renderPlain } from './render.js';
 import { topbar } from './layout.js';
 import { openAuthModal } from './account.js';
 import { rememberChannel, forgetChannel } from './recent.js';
+import { openVisitsModal } from './admin.js';
 
 const MSG_TTL_OPTIONS = [60, 300, 900, 1800, 3600, 6 * 3600, 24 * 3600, 3 * 86400, 7 * 86400];
 const CHANNEL_TTL_OPTIONS = [600, 1800, 3600, 3 * 3600, 6 * 3600, 12 * 3600, 86400, 3 * 86400, 7 * 86400];
@@ -40,6 +41,7 @@ export async function mountChannel(app, me, channelId) {
   const presence = h('div', { class: 'presence' });
   const settingsBtn = iconButton('gear', 'Channel settings', () => openSettings());
   settingsBtn.hidden = true;
+  const visitsBtn = me.role === 'admin' ? iconButton('users', 'Visitor log (admin)', () => openVisitsModal(channelId)) : null;
 
   const codeChip = h('button', {
     type: 'button', class: 'channel-code', title: 'Copy channel link',
@@ -51,14 +53,14 @@ export async function mountChannel(app, me, channelId) {
 
   app.classList.add('in-channel');
   app.replaceChildren(
-    topbar(me, codeChip, h('span', { class: 'timer-wrap' }, icon('clock'), channelTimer), presence, settingsBtn),
+    topbar(me, codeChip, h('span', { class: 'timer-wrap' }, icon('clock'), channelTimer), presence, visitsBtn, settingsBtn),
     h('main', { class: 'channel' }, scroller, composer.el),
     dropZone,
   );
 
   // ---------- load ----------
   async function load() {
-    const data = await api('GET', `/api/channels/${channelId}`);
+    const data = await api('GET', `/api/channels/${channelId}?tz=${encodeURIComponent(timeZone())}`);
     S.skew = data.serverTime - Date.now();
     S.channel = data.channel;
     S.limits = data.limits;
@@ -383,7 +385,6 @@ export async function mountChannel(app, me, channelId) {
 
   // ---------- composer ----------
   function buildComposer() {
-    let format = 'plain';
     const ta = h('textarea', {
       class: 'composer-input', rows: 1, placeholder: 'Paste or type…', 'aria-label': 'Message',
     });
@@ -391,14 +392,13 @@ export async function mountChannel(app, me, channelId) {
     const attach = iconButton('clip', 'Attach files', () => (me.isUser ? fileInput.click() : openAuthModal('Log in to upload files. Guests can still download.')));
     const sendBtn = h('button', { type: 'button', class: 'btn primary send', 'aria-label': 'Send' }, icon('send'), h('span', { class: 'send-label' }, 'Send'));
     const hint = h('div', { class: 'composer-hint' });
-    const mdSwitch = switchToggle('MD', false, (on) => { format = on ? 'md' : 'plain'; }, 'Send as Markdown');
 
     async function send() {
       const body = ta.value;
       if (!body.trim()) return;
       sendBtn.disabled = true;
       try {
-        const { message } = await api('POST', `/api/channels/${channelId}/messages`, { body, format });
+        const { message } = await api('POST', `/api/channels/${channelId}/messages`, { body, format: 'plain' });
         ta.value = '';
         autoGrow(ta);
         if (!S.messages.has(message.id)) {
@@ -426,7 +426,7 @@ export async function mountChannel(app, me, channelId) {
     fileInput.addEventListener('change', () => { uploadFiles([...fileInput.files]); fileInput.value = ''; });
 
     const el = h('footer', { class: 'composer glass' },
-      h('div', { class: 'composer-row' }, attach, ta, h('div', { class: 'composer-actions' }, mdSwitch, sendBtn)),
+      h('div', { class: 'composer-row' }, attach, ta, h('div', { class: 'composer-actions' }, sendBtn)),
       hint, fileInput);
 
     return {
@@ -663,6 +663,10 @@ export async function mountChannel(app, me, channelId) {
     dropZone.hidden = true;
     if (e.dataTransfer?.files?.length) uploadFiles([...e.dataTransfer.files]);
   });
+}
+
+function timeZone() {
+  try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch { return ''; }
 }
 
 function autoGrow(ta) {

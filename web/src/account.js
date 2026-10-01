@@ -1,5 +1,6 @@
 import { api } from './api.js';
 import { h, icon, modal, toast, copyButton, clock } from './ui.js';
+import { openChannelsModal } from './admin.js';
 
 /** Inline login / register form. Calls onDone() after a successful sign-in. */
 export function authForm(onDone, initialTab = 'login') {
@@ -156,6 +157,7 @@ export function accountChip(me) {
       const m = modal(me.name, h('div', { class: 'stack' },
         h('p', { class: 'muted' }, me.role === 'admin' ? 'Administrator' : 'Member: you can upload files.'),
         me.role === 'admin' ? h('button', { type: 'button', class: 'btn', onClick: () => { m.close(); openInvitesModal(); } }, icon('key'), 'Manage invite codes') : null,
+        me.role === 'admin' ? h('button', { type: 'button', class: 'btn', onClick: () => { m.close(); openChannelsModal(); } }, icon('users'), 'Hosted channels') : null,
         h('button', { type: 'button', class: 'btn', onClick: () => { m.close(); openPasswordModal(); } }, icon('lock'), 'Change password'),
         h('button', { type: 'button', class: 'btn danger', onClick: logout }, icon('logout'), 'Log out')));
     },

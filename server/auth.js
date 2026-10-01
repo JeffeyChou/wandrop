@@ -100,7 +100,7 @@ function startSession(reply, userId) {
   reply.setCookie(SESSION_COOKIE, token, cookieOpts(config.sessionTtlSec));
 }
 
-function requireAdmin(request, reply) {
+export function requireAdmin(request, reply) {
   if (request.actor?.role !== 'admin') {
     reply.code(403).send({ error: 'Admin only' });
     return false;

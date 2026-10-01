@@ -432,6 +432,23 @@ a, button, input, select, textarea, label { -webkit-tap-highlight-color: transpa
 .invite-row { display: grid; grid-template-columns: 1fr auto auto auto auto; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 10px; background: var(--code-bg); font-size: 12.5px; }
 .invite-row code { font-weight: 600; color: var(--accent); }
 
+/* admin: channel list and visitor log */
+.modal.xwide { width: min(1080px, 100%); }
+.admin-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.admin-summary { align-items: center; }
+.admin-table { margin: 0; }
+.admin-table table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+.admin-table th, .admin-table td { padding: 7px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: middle; }
+.admin-table th { font: 600 11px/1.3 var(--mono); text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-2); background: var(--code-bg); white-space: nowrap; }
+.admin-table tr:last-child td { border-bottom: 0; }
+.admin-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.admin-table .nowrap { white-space: nowrap; }
+.admin-table .mono, .admin-table .code-link { font-family: var(--mono); }
+.admin-table .code-link { font-weight: 600; color: var(--accent); text-decoration: none; }
+.admin-table .who { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.admin-table .icon-btn { width: 26px; height: 26px; }
+.admin-table .online { color: var(--mint); }
+
 #toasts { position: fixed; z-index: 60; bottom: 20px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 8px; align-items: center; pointer-events: none; width: calc(100% - 32px); }
 .toast { padding: 10px 16px; font: 500 13px/1.35 var(--mono); animation: enter 0.25s ease; max-width: 100%; }
 .toast.ok { border-color: color-mix(in srgb, var(--mint) 55%, transparent); }

@@ -4,6 +4,7 @@ import { randomCode, CHANNEL_ID_RE } from './util/ids.js';
 import { clampInt } from './util/validate.js';
 import { q, getChannel, unlinkBlob, unlinkPart, uploadLimits, serializeChannel, serializeMessage, serializeFile } from './store.js';
 import { broadcast, closeRoom } from './ws.js';
+import { recordVisit } from './audit.js';
 
 /** Delete a channel with all its messages/files and notify connected clients. */
 export function destroyChannel(id) {
@@ -43,6 +44,7 @@ export default async function channelRoutes(app) {
   app.get('/api/channels/:id', async (request, reply) => {
     const channel = loadChannel(request, reply);
     if (!channel) return;
+    recordVisit(request, channel.id);
     const t = now();
     return {
       channel: serializeChannel(channel),

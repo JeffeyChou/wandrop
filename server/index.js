@@ -16,6 +16,7 @@ import messageRoutes from './messages.js';
 import fileRoutes from './files.js';
 import uploadRoutes from './uploads.js';
 import wsRoutes from './ws.js';
+import auditRoutes from './audit.js';
 import { startSweeper } from './sweeper.js';
 
 const app = Fastify({
@@ -45,6 +46,7 @@ await app.register(messageRoutes);
 await app.register(fileRoutes);
 await app.register(uploadRoutes);
 await app.register(wsRoutes);
+await app.register(auditRoutes);
 
 // Frontend (built by Vite into dist/). /c/:id is a client-side route.
 if (fs.existsSync(path.join(config.staticDir, 'index.html'))) {

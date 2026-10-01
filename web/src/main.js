@@ -5,6 +5,7 @@ import { api } from './api.js';
 import { h, icon, toast, remaining } from './ui.js';
 import { startAsciiBackground, scrambleIn } from './ascii-bg.js';
 import { authForm, openInvitesModal } from './account.js';
+import { openChannelsModal } from './admin.js';
 import { topbar } from './layout.js';
 import { mountChannel } from './channel.js';
 import { recentChannels } from './recent.js';
@@ -66,7 +67,9 @@ function renderHome(app, me) {
   const authCard = me.isUser
     ? h('section', { class: 'card glass auth-card signed-in' },
       h('span', { class: 'muted' }, 'Signed in as ', h('strong', {}, me.name)),
-      me.role === 'admin' ? h('button', { type: 'button', class: 'btn', onClick: openInvitesModal }, icon('key'), 'Invite codes') : null)
+      me.role === 'admin' ? h('div', { class: 'admin-actions' },
+        h('button', { type: 'button', class: 'btn', onClick: openInvitesModal }, icon('key'), 'Invite codes'),
+        h('button', { type: 'button', class: 'btn', onClick: openChannelsModal }, icon('users'), 'Channels')) : null)
     : h('section', { class: 'card glass auth-card' },
       h('div', { class: 'eyebrow' }, icon('lock'), 'Sign in to upload files'),
       authForm(() => location.reload()));
