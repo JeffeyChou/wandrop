@@ -1,4 +1,5 @@
-import { api, upload } from './api.js';
+import { api } from './api.js';
+import { ResumableUpload } from './uploader.js';
 import {
   h, icon, iconButton, toast, copyText, copyButton, modal, switchToggle, clock, remaining, bytes, duration, hueOf, confirmDialog,
 } from './ui.js';
@@ -21,6 +22,7 @@ export async function mountChannel(app, me, channelId) {
     files: new Map(),
     view: new Map(), // message id -> 'plain' | 'md' (per-viewer bubble switch)
     editing: new Set(),
+    uploads: new Map(), // upload id -> { up: ResumableUpload, el }
     closed: false,
   };
   const serverNow = () => Date.now() + S.skew;
@@ -31,7 +33,9 @@ export async function mountChannel(app, me, channelId) {
   const emptyState = h('div', { class: 'empty' },
     h('pre', { class: 'ascii-empty', 'aria-hidden': 'true' }, '  .-.\n (o o)  nothing here yet\n | O |  paste, type, drop.\n  `-`'),
   );
-  const scroller = h('div', { class: 'scroller' }, emptyState, timeline);
+  // In-progress uploads live outside the timeline so a re-render does not drop them.
+  const uploadsBox = h('div', { class: 'uploads' });
+  const scroller = h('div', { class: 'scroller' }, emptyState, timeline, uploadsBox);
   const channelTimer = h('span', { class: 'timer', title: 'Channel dissolves in' });
   const presence = h('div', { class: 'presence' });
   const settingsBtn = iconButton('gear', 'Channel settings', () => openSettings());
@@ -64,6 +68,7 @@ export async function mountChannel(app, me, channelId) {
     settingsBtn.hidden = !isOwner();
     composer.refresh();
     renderAll();
+    if (me.isUser) loadPendingUploads();
   }
 
   try {
@@ -87,7 +92,7 @@ export async function mountChannel(app, me, channelId) {
 
   function renderAll() {
     timeline.replaceChildren(...items().map((it) => (it.kind === 'm' ? messageEl(it.v) : fileEl(it.v))));
-    emptyState.hidden = timeline.childElementCount > 0;
+    emptyState.hidden = timeline.childElementCount + uploadsBox.childElementCount > 0;
     scrollToBottom(true);
   }
 
@@ -260,46 +265,120 @@ export async function mountChannel(app, me, channelId) {
     }
   }
 
-  function uploadingEl(file) {
-    const bar = h('i');
-    const el = h('article', { class: 'file glass uploading' },
-      h('div', { class: 'file-ext' }, icon('upload')),
+  // ----- uploads -----
+  const pct = (up) => (up.size ? Math.floor((up.sent / up.size) * 100) : 100);
+
+  function uploadEl(up) {
+    const bar = h('i', { style: { width: `${pct(up)}%` } });
+    const status = up.state === 'uploading' ? `${pct(up)}%`
+      : !up.file ? `interrupted at ${pct(up)}% · pick the same file to resume`
+        : up.error || `paused at ${pct(up)}%`;
+    const picker = h('input', { type: 'file', hidden: true });
+    picker.addEventListener('change', () => {
+      const f = picker.files[0];
+      if (!f) return;
+      if (!up.matches(f)) return toast(`That is not ${up.record.name} (${bytes(up.size)})`, 'error');
+      up.file = f;
+      runUpload(up);
+    });
+    const actions = up.state === 'uploading'
+      ? [iconButton('pause', 'Pause upload', () => up.pause())]
+      : [up.file
+        ? iconButton('play', 'Resume upload', () => runUpload(up))
+        : h('button', { type: 'button', class: 'btn sm', onClick: () => picker.click() }, icon('play'), 'Resume…'), picker];
+    return h('article', { class: `file glass uploading ${up.state}` },
+      h('div', { class: 'file-ext' }, icon(up.state === 'uploading' ? 'upload' : 'pause')),
       h('div', { class: 'file-main' },
-        h('div', { class: 'file-name' }, file.name),
-        h('div', { class: 'file-meta' }, h('span', {}, bytes(file.size)), h('span', { class: 'pct' }, '0%')),
-        h('div', { class: 'progress' }, bar)));
-    return {
-      el,
-      progress(p) {
-        bar.style.width = `${Math.round(p * 100)}%`;
-        el.querySelector('.pct').textContent = `${Math.round(p * 100)}%`;
-      },
-    };
+        h('div', { class: 'file-name', title: up.record.name }, up.record.name),
+        h('div', { class: 'file-meta' }, h('span', {}, `${bytes(up.sent)} / ${bytes(up.size)}`), h('span', { class: 'pct' }, status)),
+        h('div', { class: 'progress' }, bar)),
+      h('div', { class: 'file-actions' }, ...actions,
+        iconButton('x', 'Cancel upload', async () => {
+          if (await confirmDialog('Cancel upload?', `The uploaded part of "${up.record.name}" will be discarded.`, 'Discard')) up.cancel();
+        }, 'danger')));
+  }
+
+  function onUploadChange(up) {
+    const entry = S.uploads.get(up.id);
+    if (!entry) return;
+    if (up.state === 'done' || (up.state === 'failed' && up.canceled)) {
+      entry.el.remove();
+      S.uploads.delete(up.id);
+      if (up.result && !S.files.has(up.result.id)) {
+        S.files.set(up.result.id, up.result);
+        insertSorted(fileEl(up.result), up.result.createdAt);
+      }
+      refreshUsage();
+    } else if (up.state === 'failed') {
+      toast(`${up.record.name}: ${up.error}`, 'error');
+      entry.el.remove();
+      S.uploads.delete(up.id);
+      up.cancel(); // release the reserved quota
+    } else {
+      const el = uploadEl(up);
+      entry.el.replaceWith(el);
+      entry.el = el;
+    }
+    emptyState.hidden = timeline.childElementCount + uploadsBox.childElementCount > 0;
+  }
+
+  function track(up) {
+    const el = uploadEl(up);
+    S.uploads.set(up.id, { up, el });
+    uploadsBox.append(el);
+    emptyState.hidden = true;
+    scrollToBottom(true);
+  }
+
+  const runUpload = (up) => up.run(S.limits.upload.chunkBytes);
+
+  async function loadPendingUploads() {
+    try {
+      const { uploads } = await api('GET', `/api/channels/${channelId}/uploads`);
+      for (const r of uploads) if (!S.uploads.has(r.id)) track(new ResumableUpload(channelId, r, null, onUploadChange));
+    } catch { /* not critical */ }
+  }
+
+  async function refreshUsage() {
+    try {
+      const m = await api('GET', '/api/me');
+      if (m.upload) S.limits.upload = m.upload;
+      composer.refresh();
+    } catch { /* ignore */ }
   }
 
   async function uploadFiles(fileList) {
     if (!me.isUser) return openAuthModal('Log in to upload files. Guests can still download.');
     for (const file of fileList) {
-      if (file.size > S.limits.maxFileBytes) {
-        toast(`${file.name}: larger than ${bytes(S.limits.maxFileBytes)}`, 'error');
+      // Picking a file that matches an interrupted upload continues it instead of starting over.
+      const pending = [...S.uploads.values()].find(({ up }) => !up.file && up.matches(file));
+      if (pending) {
+        pending.up.file = file;
+        await runUpload(pending.up);
         continue;
       }
-      const ui = uploadingEl(file);
-      timeline.append(ui.el);
-      emptyState.hidden = true;
-      scrollToBottom(true);
+      let up;
       try {
-        const { file: f } = await upload(`/api/channels/${channelId}/files`, file, ui.progress);
-        ui.el.remove();
-        if (!S.files.has(f.id)) {
-          S.files.set(f.id, f);
-          insertSorted(fileEl(f), f.createdAt);
-        }
+        up = await ResumableUpload.create(channelId, file, onUploadChange);
       } catch (e) {
-        ui.el.remove();
         toast(`${file.name}: ${e.message}`, 'error');
+        continue;
       }
+      track(up);
+      refreshUsage(); // the declared size is reserved from the start
+      if (up.state === 'done') onUploadChange(up);
+      else await runUpload(up);
     }
+  }
+
+  // Uploads paused by a dropped connection continue by themselves once the browser is back online.
+  window.addEventListener('online', () => {
+    for (const { up } of S.uploads.values()) if (up.offline) runUpload(up);
+  });
+
+  function uploadHint(u) {
+    if (u.quotaBytes === null) return 'No upload limits';
+    return `Files up to ${bytes(u.maxFileBytes)} · ${bytes(u.usedBytes)} of ${bytes(u.quotaBytes)} used`;
   }
 
   // ---------- composer ----------
@@ -357,7 +436,7 @@ export async function mountChannel(app, me, channelId) {
         attach.classList.toggle('locked', !me.isUser);
         hint.replaceChildren(
           h('span', {}, `Ctrl/⌘ + Enter to send · ${ttl ? `messages fade after ${duration(ttl)}` : 'messages stay until the channel dissolves'}`),
-          h('span', {}, me.isUser ? `Files up to ${bytes(S.limits.maxFileBytes)} · drag, paste or 📎` : 'Guest: clipboard only · log in to upload'));
+          h('span', {}, me.isUser ? `${uploadHint(S.limits.upload)} · drag, paste or 📎` : 'Guest: clipboard only · log in to upload'));
       },
     };
   }
@@ -514,6 +593,7 @@ export async function mountChannel(app, me, channelId) {
       case 'file:delete':
         S.files.delete(ev.id);
         removeEl(ev.id);
+        if (me.isUser) refreshUsage();
         break;
       case 'channel:update':
         S.channel = ev.channel;

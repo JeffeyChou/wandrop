@@ -53,12 +53,18 @@ const config = {
   // Limits
   maxMessageChars: int('MAX_MESSAGE_CHARS', 100_000),
   maxMessagesPerChannel: int('MAX_MESSAGES_PER_CHANNEL', 1000),
+  // Per-file and per-user limits apply to members; admins are only bound by the global quota.
   maxFileBytes: int('MAX_FILE_MB', 100) * MB,
+  userQuotaBytes: int('USER_QUOTA_MB', 1024) * MB,
   channelQuotaBytes: int('CHANNEL_QUOTA_MB', 1024) * MB,
   globalQuotaBytes: int('GLOBAL_QUOTA_MB', 20 * 1024) * MB,
   maxFilesPerChannel: int('MAX_FILES_PER_CHANNEL', 200),
   defaultMaxDownloads: int('DEFAULT_MAX_DOWNLOADS', 2),
   maxDownloadsCap: int('MAX_DOWNLOADS_CAP', 1000),
+
+  // Resumable uploads: chunk size, and how long an idle unfinished upload is kept.
+  uploadChunkBytes: Math.max(int('UPLOAD_CHUNK_MB', 16), 1) * MB,
+  uploadStaleSec: int('UPLOAD_STALE_HOURS', 24) * 3600,
 
   sweepIntervalMs: int('SWEEP_INTERVAL_MS', 5000),
 };

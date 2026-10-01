@@ -2,14 +2,16 @@ import { now, tx } from './db.js';
 import config from './config.js';
 import { randomCode, CHANNEL_ID_RE } from './util/ids.js';
 import { clampInt } from './util/validate.js';
-import { q, getChannel, unlinkBlob, serializeChannel, serializeMessage, serializeFile } from './store.js';
+import { q, getChannel, unlinkBlob, unlinkPart, uploadLimits, serializeChannel, serializeMessage, serializeFile } from './store.js';
 import { broadcast, closeRoom } from './ws.js';
 
 /** Delete a channel with all its messages/files and notify connected clients. */
 export function destroyChannel(id) {
   const fileIds = q.fileIds.all(id).map((r) => r.id);
-  q.deleteChannel.run(id); // messages + files rows cascade
+  const uploadIds = q.uploadIds.all(id).map((r) => r.id);
+  q.deleteChannel.run(id); // messages, files and uploads rows cascade
   fileIds.forEach(unlinkBlob);
+  uploadIds.forEach(unlinkPart);
   broadcast(id, 'channel:closed');
   closeRoom(id);
 }
@@ -46,7 +48,7 @@ export default async function channelRoutes(app) {
       channel: serializeChannel(channel),
       messages: q.messages.all(channel.id).filter((m) => !m.expires_at || m.expires_at > t).map(serializeMessage),
       files: q.files.all(channel.id).map(serializeFile),
-      limits: { maxFileBytes: config.maxFileBytes, maxMessageChars: config.maxMessageChars, maxDownloadsCap: config.maxDownloadsCap },
+      limits: { maxMessageChars: config.maxMessageChars, maxDownloadsCap: config.maxDownloadsCap, upload: uploadLimits(request.actor) },
       serverTime: t,
     };
   });

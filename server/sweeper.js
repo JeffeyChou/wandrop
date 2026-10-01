@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import db, { now } from './db.js';
 import config from './config.js';
-import { q } from './store.js';
+import { q, unlinkPart } from './store.js';
 import { destroyChannel } from './channels.js';
 import { destroyFile } from './files.js';
 import { broadcast } from './ws.js';
@@ -17,11 +17,15 @@ export function sweep() {
     broadcast(m.channel_id, 'message:delete', { id: m.id });
   }
   for (const f of q.expiredFiles.all(t)) destroyFile(f);
+  for (const { id } of q.staleUploads.all(t - config.uploadStaleSec * 1000)) {
+    q.deleteUpload.run(id);
+    unlinkPart(id);
+  }
   purgeSessions.run(t);
   purgeInvites.run(t);
 }
 
-/** Remove blobs that have no database row (e.g. after a crash) and stale temp uploads. */
+/** Remove blobs and partial uploads that have no database row (e.g. after a crash). */
 export function removeOrphans(log) {
   const known = new Set(q.allFileIds.all().map((r) => r.id));
   let removed = 0;
@@ -31,7 +35,10 @@ export function removeOrphans(log) {
       removed++;
     }
   }
-  for (const entry of fs.readdirSync(config.tmpDir)) fs.rmSync(`${config.tmpDir}/${entry}`, { force: true });
+  const pending = new Set(q.allUploadIds.all().map((r) => r.id));
+  for (const entry of fs.readdirSync(config.tmpDir)) {
+    if (!pending.has(entry)) fs.rmSync(`${config.tmpDir}/${entry}`, { force: true });
+  }
   if (removed) log.info(`Removed ${removed} orphaned blob(s)`);
 }
 

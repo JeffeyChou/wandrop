@@ -68,6 +68,25 @@ CREATE TABLE IF NOT EXISTS files (
   expires_at     INTEGER
 );
 CREATE INDEX IF NOT EXISTS files_channel ON files(channel_id, created_at);
+CREATE INDEX IF NOT EXISTS files_uploader ON files(uploader_key);
+
+-- Unfinished resumable uploads. Their declared size counts against quotas from the start.
+CREATE TABLE IF NOT EXISTS uploads (
+  id             TEXT PRIMARY KEY,
+  channel_id     TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+  uploader_key   TEXT NOT NULL,
+  uploader_name  TEXT NOT NULL,
+  name           TEXT NOT NULL,
+  size           INTEGER NOT NULL,
+  received       INTEGER NOT NULL DEFAULT 0,
+  last_modified  INTEGER,
+  max_downloads  INTEGER NOT NULL,
+  file_ttl_sec   INTEGER,
+  created_at     INTEGER NOT NULL,
+  updated_at     INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS uploads_channel ON uploads(channel_id);
+CREATE INDEX IF NOT EXISTS uploads_uploader ON uploads(uploader_key);
 `);
 
 export default db;

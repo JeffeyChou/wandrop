@@ -3,7 +3,6 @@ import path from 'node:path';
 import Fastify from 'fastify';
 import cookie from '@fastify/cookie';
 import rateLimit from '@fastify/rate-limit';
-import multipart from '@fastify/multipart';
 import websocket from '@fastify/websocket';
 import fastifyStatic from '@fastify/static';
 
@@ -15,6 +14,7 @@ import authRoutes, { ensureAdmin } from './auth.js';
 import channelRoutes from './channels.js';
 import messageRoutes from './messages.js';
 import fileRoutes from './files.js';
+import uploadRoutes from './uploads.js';
 import wsRoutes from './ws.js';
 import { startSweeper } from './sweeper.js';
 
@@ -29,7 +29,6 @@ await securityPlugin(app);
 await app.register(cookie, { secret: config.cookieSecret });
 await identityPlugin(app);
 await app.register(rateLimit, { global: false });
-await app.register(multipart, { limits: { fileSize: config.maxFileBytes, files: 1, fields: 0, parts: 1, headerPairs: 100 } });
 await app.register(websocket, { options: { maxPayload: 1024 } });
 
 app.setErrorHandler((err, request, reply) => {
@@ -44,6 +43,7 @@ await app.register(authRoutes);
 await app.register(channelRoutes);
 await app.register(messageRoutes);
 await app.register(fileRoutes);
+await app.register(uploadRoutes);
 await app.register(wsRoutes);
 
 // Frontend (built by Vite into dist/). /c/:id is a client-side route.

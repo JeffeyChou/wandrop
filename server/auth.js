@@ -5,6 +5,7 @@ import config from './config.js';
 import { randomId, sha256 } from './util/ids.js';
 import { USERNAME_RE, isStr } from './util/validate.js';
 import { SESSION_COOKIE, cookieOpts } from './identity.js';
+import { uploadLimits } from './store.js';
 
 const scrypt = promisify(crypto.scrypt);
 const SCRYPT = { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
@@ -112,7 +113,7 @@ const authLimit = { rateLimit: { max: 10, timeWindow: '1 minute' } };
 export default async function authRoutes(app) {
   app.get('/api/me', async (request) => {
     const a = request.actor;
-    return { name: a.name, tag: a.tag, isUser: a.isUser, role: a.role };
+    return { name: a.name, tag: a.tag, isUser: a.isUser, role: a.role, upload: a.isUser ? uploadLimits(a) : null };
   });
 
   app.post('/api/auth/register', { config: authLimit }, async (request, reply) => {

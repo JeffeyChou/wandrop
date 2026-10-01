@@ -1,12 +1,8 @@
 import fs from 'node:fs';
-import path from 'node:path';
-import crypto from 'node:crypto';
-import { Transform } from 'node:stream';
-import { pipeline } from 'node:stream/promises';
-import { now, tx } from './db.js';
+import { now } from './db.js';
 import config from './config.js';
 import { randomId, OPAQUE_ID_RE } from './util/ids.js';
-import { sanitizeFilename, contentDisposition, clampInt } from './util/validate.js';
+import { contentDisposition, clampInt } from './util/validate.js';
 import { q, getChannel, blobPath, unlinkBlob, serializeFile } from './store.js';
 import { loadChannel } from './channels.js';
 import { broadcast } from './ws.js';
@@ -34,7 +30,7 @@ function loadFile(request, reply, channel) {
 }
 
 /** Parse uploader options. Returns null (after replying) when invalid. */
-function parseFileOptions(input, reply, channel, file = null) {
+export function parseFileOptions(input, reply, channel, file = null) {
   const out = {};
   if (input.maxDownloads !== undefined && input.maxDownloads !== '') {
     const n = clampInt(input.maxDownloads, 0, config.maxDownloadsCap);
@@ -59,72 +55,7 @@ function parseFileOptions(input, reply, channel, file = null) {
   return out;
 }
 
-const insertChecked = tx((row) => {
-  const usage = q.channelUsage.get(row.channelId);
-  if (usage.n >= config.maxFilesPerChannel) throw Object.assign(new Error('Channel file limit reached'), { statusCode: 429 });
-  if (usage.bytes + row.size > config.channelQuotaBytes) throw Object.assign(new Error('Channel storage quota exceeded'), { statusCode: 413 });
-  if (q.globalUsage.get().bytes + row.size > config.globalQuotaBytes) throw Object.assign(new Error('Server storage is full'), { statusCode: 507 });
-  q.insertFile.run(row.id, row.channelId, row.uploaderKey, row.uploaderName, row.name, row.size, row.sha256,
-    row.maxDownloads, now(), row.expiresAt);
-});
-
 export default async function fileRoutes(app) {
-  app.post('/api/channels/:id/files', { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async (request, reply) => {
-    const channel = loadChannel(request, reply);
-    if (!channel) return;
-    const actor = request.actor;
-    if (!actor.isUser) return reply.code(401).send({ error: 'Log in to upload files' });
-    if (!request.isMultipart()) return reply.code(415).send({ error: 'Expected multipart/form-data' });
-
-    const declared = Number(request.headers['content-length'] || 0);
-    if (declared > config.maxFileBytes + 64 * 1024) return reply.code(413).send({ error: 'File too large' });
-    const usage = q.channelUsage.get(channel.id);
-    if (usage.bytes + declared > config.channelQuotaBytes + 64 * 1024) return reply.code(413).send({ error: 'Channel storage quota exceeded' });
-
-    const opts = parseFileOptions(request.query ?? {}, reply, channel);
-    if (!opts) return;
-
-    const part = await request.file({ limits: { fileSize: config.maxFileBytes, files: 1, fields: 0, parts: 1 } });
-    if (!part) return reply.code(400).send({ error: 'No file provided' });
-
-    const id = randomId(18);
-    const tmp = path.join(config.tmpDir, id);
-    const hash = crypto.createHash('sha256');
-    let size = 0;
-    const meter = new Transform({
-      transform(chunk, _enc, cb) {
-        size += chunk.length;
-        hash.update(chunk);
-        cb(null, chunk);
-      },
-    });
-
-    try {
-      await pipeline(part.file, meter, fs.createWriteStream(tmp, { flags: 'wx', mode: 0o600 }));
-      if (part.file.truncated) throw Object.assign(new Error('File too large'), { statusCode: 413 });
-      if (!getChannel(channel.id)) throw Object.assign(new Error('Channel expired during upload'), { statusCode: 410 });
-      await fs.promises.rename(tmp, blobPath(id));
-      try {
-        insertChecked({
-          id, channelId: channel.id, uploaderKey: actor.key, uploaderName: actor.name,
-          name: sanitizeFilename(part.filename), size, sha256: hash.digest('hex'),
-          maxDownloads: opts.maxDownloads ?? config.defaultMaxDownloads, expiresAt: opts.expiresAt ?? null,
-        });
-      } catch (err) {
-        unlinkBlob(id);
-        throw err;
-      }
-    } catch (err) {
-      await fs.promises.rm(tmp, { force: true });
-      if (err.statusCode) return reply.code(err.statusCode).send({ error: err.message });
-      throw err;
-    }
-
-    const file = serializeFile(q.file.get(id, channel.id));
-    broadcast(channel.id, 'file:new', { file });
-    return { file };
-  });
-
   app.patch('/api/channels/:id/files/:fid', async (request, reply) => {
     const channel = loadChannel(request, reply);
     if (!channel) return;

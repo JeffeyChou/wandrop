@@ -47,6 +47,7 @@ You need to move a command, a log snippet or a build artefact from one machine t
 | 📝 **Rich text** | Per-message Plain / Markdown switch, GFM tables, KaTeX (`$…$`, `$$…$$`, `\(…\)`, `\[…\]`), code blocks with copy button |
 | ✏️ **Editing** | Edit your own messages (`✎ edited at hh:mm:ss`), one-click copy, delete |
 | 📦 **Files** | Drag & drop or paste to upload, SHA-256 shown, per-file download cap and lifetime; a used-up file stays listed so the uploader can extend it |
+| ⏯️ **Resumable uploads** | Chunked uploads you can pause and resume; survive dropped connections, page reloads and server restarts |
 | ⏳ **Lifetimes** | Channel owner sets message retention (or "until channel ends") and channel lifetime |
 | 🔐 **Accounts** | Invite-only registration, self-service password change, admin UI and CLI for invite codes |
 | 🎨 **UI** | Light / dark theme, animated ASCII background, works on phones |
@@ -58,7 +59,8 @@ You need to move a command, a log snippet or a build artefact from one machine t
 | Message retention | 5 minutes (owner can change, or keep until the channel ends) |
 | Channel lifetime | 1 hour (owner can change: up to 24 h for guests, 7 days for signed-in users) |
 | Files | Upload requires an account; anyone in the channel can download. Locked after 2 downloads (the uploader can raise the limit); deleted when their lifetime or the channel ends |
-| Max file size | 100 MB |
+| Max file size | 100 MB per file for members, no limit for admins |
+| Storage per user | 1 GB of stored files per member (files count until they are deleted or expire), no limit for admins |
 
 ## How it compares
 
@@ -101,7 +103,7 @@ TRUST_PROXY=true
 ALLOWED_ORIGINS=https://drop.example.com
 ```
 
-The proxy must forward WebSocket upgrades on `/ws` and allow request bodies of at least 100 MB (nginx: `client_max_body_size 110m;`).
+The proxy must forward WebSocket upgrades on `/ws` and allow request bodies a little larger than `UPLOAD_CHUNK_MB` (16 MB by default; nginx: `client_max_body_size 20m;`). Because uploads are chunked, proxies with a body cap such as Cloudflare's 100 MB do not limit the file size.
 
 ## Admin account and invites
 
@@ -126,7 +128,7 @@ docker compose exec wandrop /nodejs/bin/node server/admin.js passwd admin   # fo
 
 - **File names never reach a path or a command.** Blobs are stored under random server-generated IDs. The original name is NFC-normalised, stripped of control characters, bidi overrides (RLO etc.), path separators and shell metacharacters, stored only in the database and always rendered as text. The codebase never calls `child_process`.
 - **Downloads** are always `application/octet-stream` with `Content-Disposition: attachment` (RFC 5987), `nosniff` and `CSP: sandbox`, so uploaded HTML/SVG is never rendered as a page on this origin. A download first exchanges a POST for a 60-second single-use ticket, so link previews and prefetchers cannot burn download counts. The counter is incremented atomically in SQLite, so concurrent requests cannot exceed the limit.
-- **Uploads** are streamed and metered; exceeding the limit aborts and deletes the temp file immediately. Per-channel quota, global quota and files-per-channel limits apply.
+- **Uploads** are chunked and resumable. The declared size is checked against the per-file limit, the uploader's quota, the channel quota and the global quota *before* any byte is accepted, and stays reserved until the upload finishes or is cancelled. Each chunk must start at the server's current offset and is metered while streamed to disk, so a client cannot write past the declared size. The SHA-256 is computed by the server over the finished file.
 - **Web:** strict CSP (no inline scripts, connections only to the same origin), Markdown with raw HTML disabled and DOMPurify sanitisation, HttpOnly + SameSite cookies, same-origin checks for writes and WebSocket upgrades, rate limits on login, registration, password change, upload and send, scrypt password hashing. Changing a password signs out every other session.
 - **Container:** distroless runtime (no shell, no package manager), non-root (uid 65532), read-only root filesystem, `cap_drop: ALL`, `no-new-privileges`, pids/memory/CPU limits. The only writable places are the `/data` volume (SQLite + files, mode 0600) and a `noexec` `/tmp` tmpfs.
 
@@ -140,7 +142,9 @@ All options live in [`.env.example`](.env.example). The common ones:
 | `MSG_TTL_DEFAULT` | `300` | Message retention for new channels (s) |
 | `CHANNEL_TTL_DEFAULT` | `3600` | Lifetime of new channels (s) |
 | `CHANNEL_TTL_MAX_ANON` / `CHANNEL_TTL_MAX_USER` | `86400` / `604800` | Max lifetime a guest / member can set (s) |
-| `MAX_FILE_MB` | `100` | Max size per file |
+| `MAX_FILE_MB` | `100` | Max size per file (members) |
+| `USER_QUOTA_MB` | `1024` | Storage per member (admins: unlimited) |
+| `UPLOAD_CHUNK_MB` / `UPLOAD_STALE_HOURS` | `16` / `24` | Upload chunk size; how long an idle unfinished upload is kept |
 | `CHANNEL_QUOTA_MB` / `GLOBAL_QUOTA_MB` | `1024` / `20480` | Storage quotas |
 | `DEFAULT_MAX_DOWNLOADS` | `2` | Download cap for new files |
 | `COOKIE_SECRET` / `COOKIE_SECRET_FILE` | generated | Cookie signing secret (≥ 32 chars); persisted in the volume if unset |
