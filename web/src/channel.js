@@ -1,6 +1,6 @@
 import { api, upload } from './api.js';
 import {
-  h, icon, iconButton, toast, copyText, copyButton, modal, switchToggle, clock, remaining, bytes, duration, hueOf,
+  h, icon, iconButton, toast, copyText, copyButton, modal, switchToggle, clock, remaining, bytes, duration, hueOf, confirmDialog,
 } from './ui.js';
 import { renderMarkdown, renderPlain } from './render.js';
 import { topbar } from './layout.js';
@@ -152,7 +152,7 @@ export async function mountChannel(app, me, channelId) {
       switchToggle('MD', mode === 'md', (on) => { S.view.set(m.id, on ? 'md' : 'plain'); paint(on); }, 'Render as Markdown'),
       copyButton(() => m.body, 'Copy text'),
       mine ? iconButton('pen', 'Edit', () => startEdit(m, el, body)) : null,
-      mine || isOwner() ? iconButton('trash', 'Delete', () => del(`/api/channels/${channelId}/messages/${m.id}`), 'danger') : null);
+      mine || isOwner() ? iconButton('trash', 'Delete', () => del(`/api/channels/${channelId}/messages/${m.id}`, 'Delete message?', 'This message will be removed for everyone in the channel.'), 'danger') : null);
 
     const el = h('article', { class: `msg glass ${mine ? 'mine' : ''}`, dataset: { id: m.id, t: m.createdAt } },
       h('div', { class: 'msg-head' },
@@ -230,7 +230,7 @@ export async function mountChannel(app, me, channelId) {
       h('div', { class: 'file-actions' },
         dlBtn,
         mine ? iconButton('gear', 'File settings', () => openFileSettings(f)) : null,
-        mine || isOwner() ? iconButton('trash', 'Delete file', () => del(`/api/channels/${channelId}/files/${f.id}`), 'danger') : null));
+        mine || isOwner() ? iconButton('trash', 'Delete file', () => del(`/api/channels/${channelId}/files/${f.id}`, 'Delete file?', `"${f.name}" will be removed for everyone in the channel.`), 'danger') : null));
   }
 
   async function download(f, btn) {
@@ -248,7 +248,8 @@ export async function mountChannel(app, me, channelId) {
     }
   }
 
-  async function del(url) {
+  async function del(url, title, message) {
+    if (!(await confirmDialog(title, message))) return;
     try {
       await api('DELETE', url);
     } catch (e) {
@@ -404,7 +405,7 @@ export async function mountChannel(app, me, channelId) {
       h('button', {
         type: 'button', class: 'btn danger',
         onClick: async () => {
-          if (!confirm('Destroy this channel and everything in it?')) return;
+          if (!(await confirmDialog('Destroy channel?', 'Every message and file in this channel will be deleted immediately.', 'Destroy'))) return;
           try {
             await api('DELETE', `/api/channels/${channelId}`);
             m.close();

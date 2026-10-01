@@ -28,7 +28,7 @@ const P = {
   clip: '<path d="M20 11.5l-8 8a5 5 0 0 1-7-7l8.5-8.5a3.5 3.5 0 0 1 5 5L10 17.5a2 2 0 0 1-3-3l7.5-7.5"/>',
   download: '<path d="M12 4v11M7 10.5l5 5 5-5M5 20h14"/>',
   upload: '<path d="M12 20V9M7 13.5l5-5 5 5M5 4h14"/>',
-  gear: '<circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/>',
+  gear: '<path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2.2"/><circle cx="9" cy="17" r="2.2"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M4.9 19.1l1.8-1.8M17.3 6.7l1.8-1.8"/>',
   moon: '<path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/>',
   user: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
@@ -107,7 +107,8 @@ export function modal(title, body, { onClose, wide = false } = {}) {
     setTimeout(() => overlay.remove(), 200);
     onClose?.();
   };
-  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  // Only the topmost modal reacts to Escape, so a confirm dialog does not also close its parent.
+  const onKey = (e) => { if (e.key === 'Escape' && document.body.lastElementChild === overlay) close(); };
   const card = h('div', { class: `modal glass ${wide ? 'wide' : ''}`, role: 'dialog', 'aria-modal': 'true', 'aria-label': title },
     h('div', { class: 'modal-head' }, h('h2', {}, title), iconButton('x', 'Close', () => close())),
     body);
@@ -116,6 +117,21 @@ export function modal(title, body, { onClose, wide = false } = {}) {
   document.body.append(overlay);
   requestAnimationFrame(() => card.querySelector('input,textarea,select,button.primary')?.focus());
   return { close, card };
+}
+
+/** In-page replacement for window.confirm(). Resolves true only when the action is confirmed. */
+export function confirmDialog(title, message, actionLabel = 'Delete') {
+  return new Promise((resolve) => {
+    let answered = false;
+    const answer = (v) => { answered = true; resolve(v); m.close(); };
+    const m = modal(title, h('div', { class: 'stack' },
+      h('p', { class: 'muted' }, message),
+      h('div', { class: 'confirm-actions' },
+        h('button', { type: 'button', class: 'btn', onClick: () => answer(false) }, 'Cancel'),
+        h('button', { type: 'button', class: 'btn danger-solid', onClick: () => answer(true) }, icon('trash'), actionLabel))),
+    { onClose: () => { if (!answered) resolve(false); } });
+    m.card.querySelector('.danger-solid').focus();
+  });
 }
 
 /** Toggle switch (role=switch). */
