@@ -61,6 +61,10 @@ const config = {
   maxFilesPerChannel: int('MAX_FILES_PER_CHANNEL', 200),
   defaultMaxDownloads: int('DEFAULT_MAX_DOWNLOADS', 2),
   maxDownloadsCap: int('MAX_DOWNLOADS_CAP', 1000),
+  maxReadsCap: int('MAX_READS_CAP', 1000),
+  // Images sent as messages (shown inline). Sent in one request, so keep below the proxy body limit.
+  maxImageBytes: Math.max(int('MAX_IMAGE_MB', 20), 1) * MB,
+  maxPreviewBytes: 2 * MB,
 
   // Resumable uploads: chunk size, and how long an idle unfinished upload is kept.
   uploadChunkBytes: Math.max(int('UPLOAD_CHUNK_MB', 16), 1) * MB,

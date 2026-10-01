@@ -14,6 +14,15 @@ export function broadcast(channelId, type, data = {}) {
   }
 }
 
+/** Like broadcast, but builds the payload per recipient (e.g. to withhold sealed message bodies). */
+export function broadcastEach(channelId, type, build) {
+  const room = rooms.get(channelId);
+  if (!room) return;
+  for (const { socket, actor } of room) {
+    if (socket.readyState === 1) socket.send(JSON.stringify({ type, ...build(actor) }));
+  }
+}
+
 export function closeRoom(channelId) {
   const room = rooms.get(channelId);
   if (!room) return;

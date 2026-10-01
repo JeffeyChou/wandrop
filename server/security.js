@@ -47,7 +47,7 @@ export default async function securityPlugin(app) {
     reply.header('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
     if (!reply.hasHeader('Content-Security-Policy')) reply.header('Content-Security-Policy', CSP);
     if (config.cookieSecure) reply.header('Strict-Transport-Security', 'max-age=31536000');
-    if (request.url.startsWith('/api/')) reply.header('Cache-Control', 'no-store');
+    if (request.url.startsWith('/api/') && !reply.hasHeader('Cache-Control')) reply.header('Cache-Control', 'no-store');
     return payload;
   });
 }

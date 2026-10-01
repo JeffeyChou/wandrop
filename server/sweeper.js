@@ -2,9 +2,9 @@ import fs from 'node:fs';
 import db, { now } from './db.js';
 import config from './config.js';
 import { q, unlinkPart } from './store.js';
+import { removeMessage } from './messages.js';
 import { destroyChannel } from './channels.js';
 import { destroyFile } from './files.js';
-import { broadcast } from './ws.js';
 
 const purgeSessions = db.prepare('DELETE FROM sessions WHERE expires_at <= ?');
 const purgeInvites = db.prepare('DELETE FROM invites WHERE expires_at IS NOT NULL AND expires_at <= ?');
@@ -12,10 +12,7 @@ const purgeInvites = db.prepare('DELETE FROM invites WHERE expires_at IS NOT NUL
 export function sweep() {
   const t = now();
   for (const { id } of q.expiredChannels.all(t)) destroyChannel(id);
-  for (const m of q.expiredMessages.all(t)) {
-    q.deleteMessage.run(m.id);
-    broadcast(m.channel_id, 'message:delete', { id: m.id });
-  }
+  for (const m of q.expiredMessages.all(t)) removeMessage(m);
   for (const f of q.expiredFiles.all(t)) destroyFile(f);
   for (const { id } of q.staleUploads.all(t - config.uploadStaleSec * 1000)) {
     q.deleteUpload.run(id);
@@ -27,7 +24,7 @@ export function sweep() {
 
 /** Remove blobs and partial uploads that have no database row (e.g. after a crash). */
 export function removeOrphans(log) {
-  const known = new Set(q.allFileIds.all().map((r) => r.id));
+  const known = new Set([...q.allFileIds.all(), ...q.allImageIds.all()].map((r) => r.id));
   let removed = 0;
   for (const entry of fs.readdirSync(config.filesDir, { withFileTypes: true })) {
     if (entry.isFile() && !known.has(entry.name)) {

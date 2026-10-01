@@ -72,7 +72,7 @@ export function openChannelsModal() {
   async function refresh() {
     try {
       const { channels, serverTime } = await api('GET', '/api/admin/channels');
-      const total = channels.reduce((s, c) => s + c.messageBytes + c.fileBytes + c.uploadBytes, 0);
+      const total = channels.reduce((s, c) => s + c.messageBytes + c.imageBytes + c.fileBytes + c.uploadBytes, 0);
       const msgs = channels.reduce((s, c) => s + c.messages, 0);
       body.replaceChildren(
         h('div', { class: 'row gap admin-summary' },
@@ -80,18 +80,19 @@ export function openChannelsModal() {
           h('span', { class: 'grow' }),
           iconButton('refresh', 'Refresh', refresh)),
         channels.length ? table(['Code', 'Owner', 'Created', 'Expires in', 'Messages', 'Files', 'Storage', 'Visitors', ''], channels.map((c) => {
-          const storage = c.messageBytes + c.fileBytes + c.uploadBytes;
+          const storage = c.messageBytes + c.imageBytes + c.fileBytes + c.uploadBytes;
           return h('tr', {},
             h('td', {}, h('span', { class: 'who' }, h('a', { href: `/c/${c.id}`, class: 'mono code-link' }, c.id), copyButton(() => c.id, 'Copy code'))),
             h('td', {}, c.ownerName || '–', h('span', { class: 'muted' }, c.ownerKind === 'user' ? ' (member)' : ' (guest)')),
             h('td', { class: 'nowrap' }, stamp(c.createdAt)),
             h('td', { class: 'nowrap' }, remaining(c.expiresAt - serverTime)),
-            h('td', { class: 'num', title: `${bytes(c.messageBytes)} of text` }, c.messages),
+            h('td', { class: 'num', title: `${bytes(c.messageBytes)} of text${c.images ? `, ${c.images} image(s) ${bytes(c.imageBytes)}` : ''}` },
+              c.messages, c.images ? h('span', { class: 'muted' }, ` (${c.images} img)`) : null),
             h('td', { class: 'num', title: c.uploads ? `${c.uploads} unfinished upload(s), ${bytes(c.uploadBytes)} received` : null },
               c.files, c.uploads ? h('span', { class: 'muted' }, ` +${c.uploads}`) : null),
             h('td', {
               class: 'num nowrap',
-              title: `text ${bytes(c.messageBytes)} · files ${bytes(c.fileBytes)}${c.uploads ? ` · partial uploads ${bytes(c.uploadBytes)}` : ''}`,
+              title: `text ${bytes(c.messageBytes)} · images ${bytes(c.imageBytes)} · files ${bytes(c.fileBytes)}${c.uploads ? ` · partial uploads ${bytes(c.uploadBytes)}` : ''}`,
             }, bytes(storage)),
             h('td', { class: 'num' }, c.visitors, c.online ? h('span', { class: 'online', title: 'Online now' }, ` ● ${c.online}`) : null),
             h('td', {}, iconButton('users', 'Visitor log', () => openVisitsModal(c.id))));

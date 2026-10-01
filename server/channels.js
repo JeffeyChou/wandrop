@@ -2,16 +2,20 @@ import { now, tx } from './db.js';
 import config from './config.js';
 import { randomCode, CHANNEL_ID_RE } from './util/ids.js';
 import { clampInt } from './util/validate.js';
-import { q, getChannel, unlinkBlob, unlinkPart, uploadLimits, serializeChannel, serializeMessage, serializeFile } from './store.js';
-import { broadcast, closeRoom } from './ws.js';
+import {
+  q, getChannel, unlinkBlob, unlinkPart, uploadLimits, serializeChannel, serializeMessage, channelReadSet, serializeFile,
+} from './store.js';
+import { broadcast, broadcastEach, closeRoom } from './ws.js';
 import { recordVisit } from './audit.js';
 
 /** Delete a channel with all its messages/files and notify connected clients. */
 export function destroyChannel(id) {
-  const fileIds = q.fileIds.all(id).map((r) => r.id);
+  const fileIds = q.fileIds.all(id, id).map((r) => r.id);
   const uploadIds = q.uploadIds.all(id).map((r) => r.id);
+  const imageIds = q.imageIds.all(id).map((r) => r.id);
   q.deleteChannel.run(id); // messages, files and uploads rows cascade
   fileIds.forEach(unlinkBlob);
+  imageIds.forEach(unlinkBlob);
   uploadIds.forEach(unlinkPart);
   broadcast(id, 'channel:closed');
   closeRoom(id);
@@ -46,11 +50,15 @@ export default async function channelRoutes(app) {
     if (!channel) return;
     recordVisit(request, channel.id);
     const t = now();
+    const readSet = channelReadSet(channel.id, request.actor);
     return {
       channel: serializeChannel(channel),
-      messages: q.messages.all(channel.id).filter((m) => !m.expires_at || m.expires_at > t).map(serializeMessage),
+      messages: q.messages.all(channel.id).filter((m) => !m.expires_at || m.expires_at > t)
+        .map((m) => serializeMessage(m, request.actor, readSet)),
       files: q.files.all(channel.id).map(serializeFile),
-      limits: { maxMessageChars: config.maxMessageChars, maxDownloadsCap: config.maxDownloadsCap, upload: uploadLimits(request.actor) },
+      limits: {
+        maxMessageChars: config.maxMessageChars, maxDownloadsCap: config.maxDownloadsCap, maxReadsCap: config.maxReadsCap, maxImageBytes: config.maxImageBytes, upload: uploadLimits(request.actor),
+      },
       serverTime: t,
     };
   });
@@ -64,6 +72,8 @@ export default async function channelRoutes(app) {
     const body = request.body ?? {};
     let msgTtl = channel.msg_ttl_sec;
     let expiresAt = channel.expires_at;
+    let mode = channel.msg_mode;
+    let maxReads = channel.msg_max_reads;
 
     if (body.expiresInSec !== undefined) {
       const s = clampInt(body.expiresInSec, 60, maxTtl);
@@ -75,17 +85,33 @@ export default async function channelRoutes(app) {
       if (s === null) return reply.code(400).send({ error: 'Invalid message retention' });
       msgTtl = s;
     }
+    if (body.msgMode !== undefined) {
+      if (body.msgMode !== 'time' && body.msgMode !== 'reads') return reply.code(400).send({ error: 'msgMode must be time or reads' });
+      mode = body.msgMode;
+    }
+    if (body.msgMaxReads !== undefined) {
+      const n = clampInt(body.msgMaxReads, 1, config.maxReadsCap);
+      if (n === null) return reply.code(400).send({ error: `Views per message must be between 1 and ${config.maxReadsCap}` });
+      maxReads = n;
+    }
 
+    const retimed = msgTtl !== channel.msg_ttl_sec;
+    // Switching to burn-after-reading turns every remaining message into a read-limited one.
+    // Switching back leaves read-limited messages alone: only new messages are time based again.
+    const toReads = mode === 'reads' && channel.msg_mode !== 'reads';
     tx(() => {
-      q.updateChannel.run(msgTtl, expiresAt, channel.id);
-      if (msgTtl !== channel.msg_ttl_sec) q.retimeMessages.run(msgTtl, msgTtl, channel.id);
+      q.updateChannel.run(msgTtl, expiresAt, mode, maxReads, channel.id);
+      if (retimed) q.retimeMessages.run(msgTtl, msgTtl, channel.id);
+      if (toReads) q.readLimitAll.run(maxReads, channel.id);
     })();
 
     const updated = serializeChannel(q.channelAny.get(channel.id));
     broadcast(channel.id, 'channel:update', { channel: updated });
-    if (msgTtl !== channel.msg_ttl_sec) {
-      broadcast(channel.id, 'messages:retimed', {
-        messages: q.messages.all(channel.id).map((m) => ({ id: m.id, expiresAt: m.expires_at })),
+    if (retimed || toReads) {
+      const rows = q.messages.all(channel.id);
+      broadcastEach(channel.id, 'messages:sync', (actor) => {
+        const readSet = channelReadSet(channel.id, actor);
+        return { messages: rows.map((m) => serializeMessage(m, actor, readSet)) };
       });
     }
     return { channel: updated };
