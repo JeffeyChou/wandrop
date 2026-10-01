@@ -98,6 +98,7 @@
 /* ---------- base ---------- */
 *, *::before, *::after { box-sizing: border-box; }
 html, body { height: 100%; }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 body {
   margin: 0;
   background: var(--bg);
@@ -486,6 +487,10 @@ a, button, input, select, textarea, label { -webkit-tap-highlight-color: transpa
   .tagline .sep { margin: 0 6px; }
   .invite-row { grid-template-columns: 1fr auto auto; }
   .invite-row > .muted:nth-of-type(2) { display: none; }
+}
+/* Touch devices: iOS zooms into any field with text below 16px and stays zoomed after sending. */
+@media (pointer: coarse) {
+  .composer-input, .edit-area, .field input, .field select, .auth-form input { font-size: 16px; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }

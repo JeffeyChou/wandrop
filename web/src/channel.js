@@ -52,6 +52,24 @@ export async function mountChannel(app, me, channelId) {
     onClick: async () => { if (await copyText(location.href)) toast('Channel link copied', 'ok'); },
   }, h('span', { class: 'hash' }, '#'), channelId, icon('link'));
 
+  // A read-limited message counts as read once it is actually on screen in a visible tab.
+  const onScreen = new Set();
+  const autoRead = new IntersectionObserver((entries) => {
+    for (const e of entries) {
+      if (e.isIntersecting) onScreen.add(e.target.dataset.sealed);
+      else onScreen.delete(e.target.dataset.sealed);
+    }
+    readVisible();
+  }, { root: scroller, threshold: 0.6 });
+  function readVisible() {
+    if (document.visibilityState !== 'visible') return;
+    for (const id of onScreen) {
+      const m = S.messages.get(id);
+      if (m?.sealed && !S.revealing.has(id)) reveal(m);
+    }
+  }
+  document.addEventListener('visibilitychange', readVisible);
+
   const composer = buildComposer();
   const dropZone = h('div', { class: 'dropzone', hidden: true }, h('div', { class: 'dropzone-inner glass' }, icon('upload'), h('span', {}, 'Drop to upload')));
 
@@ -199,12 +217,14 @@ export async function mountChannel(app, me, channelId) {
 
   function sealedEl(m) {
     const btn = h('button', { type: 'button', class: 'btn primary sm', onClick: () => reveal(m, btn) }, icon('flame'), 'Open');
-    return h('div', { class: 'sealed' },
+    const el = h('div', { class: 'sealed', dataset: { sealed: m.id } },
       icon(m.isImage ? 'image' : 'flame'),
       h('div', { class: 'grow' },
         h('strong', {}, m.isImage ? 'Image · burns after reading' : 'Burns after reading'),
-        h('div', { class: 'muted small' }, `${plural(viewsLeft(m), 'view')} left · opening it uses one`)),
+        h('div', { class: 'muted small' }, `${plural(viewsLeft(m), 'view')} left · opens when shown, using one view`)),
       btn);
+    autoRead.observe(el);
+    return el;
   }
 
   function imageEl(m) {
@@ -217,8 +237,9 @@ export async function mountChannel(app, me, channelId) {
     m.card.classList.add('xwide');
   }
 
-  async function reveal(m, btn) {
-    btn.disabled = true;
+  async function reveal(m, btn = null) {
+    if (S.revealing.has(m.id)) return;
+    if (btn) btn.disabled = true;
     S.revealing.add(m.id);
     try {
       const { message, burned } = await api('POST', `/api/channels/${channelId}/messages/${m.id}/read`);
@@ -234,7 +255,8 @@ export async function mountChannel(app, me, channelId) {
         toast('Too late: this message has already burned', 'error');
       } else {
         toast(e.message, 'error');
-        btn.disabled = false;
+        if (btn) btn.disabled = false;
+        onScreen.delete(m.id); // do not retry in a loop; the Open button still works
       }
     } finally {
       S.revealing.delete(m.id);
@@ -584,11 +606,15 @@ export async function mountChannel(app, me, channelId) {
       refresh() {
         const ttl = S.channel.msgTtlSec;
         attach.classList.toggle('locked', !me.isUser);
+        const tip = me.isUser
+          ? `Attach files (${uploadHint(S.limits.upload)}). Images: paste to send compressed, attach or drop to send the original.`
+          : 'Log in to upload files. Guests can still paste text and download.';
+        attach.title = tip;
+        attach.setAttribute('aria-label', tip);
         hint.replaceChildren(
           h('span', {}, `Ctrl/⌘ + Enter to send · ${S.channel.msgMode === 'reads'
             ? `messages burn after ${S.channel.msgMaxReads} view${S.channel.msgMaxReads === 1 ? '' : 's'}`
-            : ttl ? `messages fade after ${duration(ttl)}` : 'messages stay until the channel dissolves'}`),
-          h('span', {}, me.isUser ? `${uploadHint(S.limits.upload)} · drag, paste or 📎 · pasted images are compressed, attached ones sent as original` : 'Guest: clipboard only · log in to upload'));
+            : ttl ? `messages fade after ${duration(ttl)}` : 'messages stay until the channel dissolves'}`));
       },
     };
   }
