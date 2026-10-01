@@ -25,7 +25,8 @@ export async function mountChannel(app, me, channelId) {
     files: new Map(),
     view: new Map(), // message id -> 'plain' | 'md' (per-viewer bubble switch)
     editing: new Set(),
-    burned: new Set(), // read-limited messages destroyed on the server that this viewer still shows
+    burned: new Map(), // id -> { start, at }: burned on the server, still shown here until `at`
+    seenAt: new Map(), // id -> when this viewer first saw the content
     revealing: new Set(),
     uploads: new Map(), // upload id -> { up: ResumableUpload, el }
     closed: false,
@@ -173,6 +174,7 @@ export async function mountChannel(app, me, channelId) {
   function messageEl(m) {
     const mine = m.authorTag === me.tag;
     const burned = S.burned.has(m.id);
+    if (!m.sealed && !S.seenAt.has(m.id)) S.seenAt.set(m.id, serverNow());
     const text = !m.sealed && !m.isImage;
     const mode = S.view.get(m.id) || m.format;
     const body = h('div', { class: 'msg-body' });
@@ -201,7 +203,7 @@ export async function mountChannel(app, me, channelId) {
         m.editedAt ? h('span', { class: 'edited' }, icon('pen'), `edited at ${clock(m.editedAt)}`) : null,
         h('span', { class: 'grow' }),
         m.maxReads !== null || burned ? readsChip(m, burned) : lifeChip(m.createdAt, m.expiresAt)),
-      m.maxReads === null ? lifeBar(m.createdAt, m.expiresAt) : null);
+      burned ? lifeBar(S.burned.get(m.id).start, S.burned.get(m.id).at) : m.maxReads === null ? lifeBar(m.createdAt, m.expiresAt) : null);
     return el;
   }
 
@@ -209,7 +211,10 @@ export async function mountChannel(app, me, channelId) {
   function plural(n, word) { return `${n} ${word}${n === 1 ? '' : 's'}`; }
 
   function readsChip(m, burned) {
-    if (burned) return h('span', { class: 'life burn', title: 'Destroyed on the server; you can see it until you leave' }, icon('flame'), 'burned · gone for everyone else');
+    if (burned) {
+      return h('span', { class: 'life burn warn', title: 'Destroyed on the server; it disappears from your screen when the countdown ends' },
+        icon('flame'), 'burns in ', h('span', { dataset: { exp: S.burned.get(m.id).at } }, remaining(S.burned.get(m.id).at - serverNow())));
+    }
     const left = viewsLeft(m);
     return h('span', { class: `life burn ${left <= 1 ? 'warn' : ''}`, title: `Opened by ${m.reads} of ${m.maxReads} · the sender does not count` },
       icon('flame'), `${plural(left, 'view')} left`);
@@ -237,6 +242,21 @@ export async function mountChannel(app, me, channelId) {
     m.card.classList.add('xwide');
   }
 
+  /** Time to read a message: about 12 characters per second plus a base, 8 s to 2 min; images 15 s. */
+  function readingMs(m) {
+    if (m.isImage) return 15_000;
+    return Math.min(120_000, Math.max(8_000, 6_000 + (m.body?.length || 0) * 80));
+  }
+
+  /** The message burned on the server: keep it for the rest of its reading time, then remove it. */
+  function startBurn(m) {
+    const t = serverNow();
+    const seen = S.seenAt.get(m.id) ?? t;
+    S.burned.set(m.id, { start: Math.min(seen, t), at: Math.max(seen + readingMs(m), t + 3_000) });
+    S.editing.delete(m.id);
+    m.reads = m.maxReads ?? m.reads;
+  }
+
   async function reveal(m, btn = null) {
     if (S.revealing.has(m.id)) return;
     if (btn) btn.disabled = true;
@@ -244,7 +264,10 @@ export async function mountChannel(app, me, channelId) {
     try {
       const { message, burned } = await api('POST', `/api/channels/${channelId}/messages/${m.id}/read`);
       S.messages.set(message.id, message);
-      if (burned) S.burned.add(message.id);
+      if (burned) {
+        S.seenAt.set(message.id, serverNow());
+        startBurn(message);
+      }
       const el = messageEl(message);
       if (timeline.querySelector(`[data-id="${CSS.escape(m.id)}"]`)) replaceEl(m.id, el);
       else insertSorted(el, message.createdAt);
@@ -785,9 +808,7 @@ export async function mountChannel(app, me, channelId) {
           S.messages.delete(ev.id);
           removeEl(ev.id);
         } else {
-          S.burned.add(ev.id);
-          S.editing.delete(ev.id);
-          m.reads = m.maxReads ?? m.reads;
+          startBurn(m);
           replaceEl(ev.id, messageEl(m));
         }
         break;
@@ -831,6 +852,12 @@ export async function mountChannel(app, me, channelId) {
     const left = S.channel.expiresAt - t;
     channelTimer.textContent = remaining(left);
     channelTimer.classList.toggle('warn', left < 5 * 60 * 1000);
+    for (const [id, { at }] of S.burned) {
+      if (t < at) continue;
+      S.burned.delete(id);
+      S.messages.delete(id);
+      removeEl(id);
+    }
     for (const el of app.querySelectorAll('[data-exp]')) {
       const exp = Number(el.dataset.exp);
       if (el.dataset.start) {
