@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-// Admin CLI: `node server/admin.js invite [maxUses] [ttlHours]` | `invites` | `users`
+// Admin CLI: `node server/admin.js invite [maxUses] [ttlHours]` | `invites` | `users` | `passwd <username>`
 import db from './db.js';
-import { createInvite } from './auth.js';
+import { createInvite, setPassword } from './auth.js';
+import { randomId } from './util/ids.js';
 
 const [cmd, a, b] = process.argv.slice(2);
 
@@ -18,7 +19,18 @@ switch (cmd) {
   case 'users':
     console.table(db.prepare('SELECT id, username, role, datetime(created_at/1000, \'unixepoch\') AS created FROM users').all());
     break;
+  case 'passwd': {
+    // Generates the password instead of taking it as an argument, so it never lands in shell history.
+    const password = randomId(18);
+    if (!a || !(await setPassword(a, password))) {
+      console.error(`No such user: ${a ?? '(missing username)'}`);
+      process.exitCode = 1;
+      break;
+    }
+    console.log(`New password for ${a}: ${password}\nAll of their sessions were signed out.`);
+    break;
+  }
   default:
-    console.log('Usage: node server/admin.js invite [maxUses=1] [ttlHours=168, 0=never] | invites | users');
+    console.log('Usage: node server/admin.js invite [maxUses=1] [ttlHours=168, 0=never] | invites | users | passwd <username>');
     process.exitCode = 1;
 }

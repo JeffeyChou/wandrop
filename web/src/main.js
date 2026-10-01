@@ -64,37 +64,26 @@ function renderHome(app, me) {
   const createBtn = h('button', { type: 'button', class: 'btn primary xl', onClick: () => createChannel(createBtn) }, icon('plus'), 'New channel');
 
   const authCard = me.isUser
-    ? h('section', { class: 'card glass stack' },
-      h('div', { class: 'eyebrow' }, 'Signed in'),
-      h('h3', {}, `Hi, ${me.name}`),
-      h('p', { class: 'muted' }, 'You can drop files into any channel you join. Uploads default to 2 downloads and vanish with the channel.'),
+    ? h('section', { class: 'card glass auth-card signed-in' },
+      h('span', { class: 'muted' }, 'Signed in as ', h('strong', {}, me.name)),
       me.role === 'admin' ? h('button', { type: 'button', class: 'btn', onClick: openInvitesModal }, icon('key'), 'Invite codes') : null)
-    : h('section', { class: 'card glass stack' },
-      h('div', { class: 'eyebrow' }, icon('lock'), 'Sign in required for files'),
-      authForm(() => location.reload()),
-      h('p', { class: 'muted small' }, 'Or continue as ', h('code', {}, me.name), ': guests can use the clipboard and download files, but cannot upload.'));
+    : h('section', { class: 'card glass auth-card' },
+      h('div', { class: 'eyebrow' }, icon('lock'), 'Sign in to upload files'),
+      authForm(() => location.reload()));
 
   app.replaceChildren(
     topbar(me),
     h('main', { class: 'home' },
-      h('section', { class: 'hero' },
-        logo,
-        h('p', { class: 'tagline' }, 'ephemeral clipboard', h('span', { class: 'sep' }, '//'), 'temporary file drop'),
-        h('div', { class: 'card glass stack hero-card' },
-          createBtn,
-          h('div', { class: 'divider' }, h('span', {}, 'or join with a code')),
-          joinBox(),
-          recentList())),
-      h('aside', { class: 'side' },
-        authCard,
-        h('div', { class: 'facts' },
-          fact('5 min', 'messages fade'),
-          fact('1 h', 'channels dissolve'),
-          fact('2×', 'downloads per file')))));
+      logo,
+      h('p', { class: 'tagline' }, 'ephemeral clipboard', h('span', { class: 'sep' }, '//'), 'temporary file drop'),
+      h('section', { class: 'card glass stack' },
+        createBtn,
+        h('div', { class: 'divider' }, h('span', {}, 'or join with a code')),
+        joinBox(),
+        recentList()),
+      authCard));
   scrambleIn(logo, LOGO, 1100);
 }
-
-const fact = (big, small) => h('div', { class: 'fact glass' }, h('strong', {}, big), h('span', {}, small));
 
 async function boot() {
   startAsciiBackground(document.getElementById('ascii-bg'));

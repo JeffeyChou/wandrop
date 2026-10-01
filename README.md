@@ -1,25 +1,99 @@
-# WanDrop
+<div align="center">
 
-网页剪切板 + 临时文件转存中心，以 IM 频道的形式工作。每个频道有一个 7 位 `[0-9a-z]` 标识符（如 `/c/k2z0vm2`），访客自动获得随机用户名。所有内容都会自动过期销毁。
+<pre>
+██╗    ██╗ █████╗ ███╗   ██╗██████╗ ██████╗  ██████╗ ██████╗
+██║    ██║██╔══██╗████╗  ██║██╔══██╗██╔══██╗██╔═══██╗██╔══██╗
+██║ █╗ ██║███████║██╔██╗ ██║██║  ██║██████╔╝██║   ██║██████╔╝
+██║███╗██║██╔══██║██║╚██╗██║██║  ██║██╔══██╗██║   ██║██╔═══╝
+╚███╔███╔╝██║  ██║██║ ╚████║██████╔╝██║  ██║╚██████╔╝██║
+ ╚══╝╚══╝ ╚═╝  ╚═╝╚═╝  ╚═══╝╚═════╝ ╚═╝  ╚═╝ ╚═════╝ ╚═╝
+</pre>
 
-| 默认规则 | 值 |
+**Ephemeral web clipboard and temporary file drop, organised as IM channels.**
+
+Open a channel, share the 7-character code, paste text or drop files. Everything self-destructs.
+
+![Node](https://img.shields.io/badge/node-%E2%89%A522-339933?logo=node.js&logoColor=white)
+![Fastify](https://img.shields.io/badge/fastify-5-000000?logo=fastify&logoColor=white)
+![SQLite](https://img.shields.io/badge/sqlite-WAL-003B57?logo=sqlite&logoColor=white)
+![Docker](https://img.shields.io/badge/docker-distroless-2496ED?logo=docker&logoColor=white)
+
+English · [简体中文](README_ZH.md)
+
+</div>
+
+<p align="center">
+  <img src="docs/screenshots/home-dark.png" width="49%" alt="Home page, dark theme">
+  <img src="docs/screenshots/home-light.png" width="49%" alt="Home page, light theme">
+</p>
+<p align="center">
+  <img src="docs/screenshots/channel-dark.png" width="80%" alt="A channel with plain text, Markdown with a table and KaTeX, and a file">
+</p>
+
+## Why WanDrop?
+
+You need to move a command, a log snippet or a build artefact from one machine to another *right now*, and you do not want it to live forever in a chat history or a cloud drive. WanDrop gives you a throwaway room for exactly that:
+
+- **No setup for guests.** Visitors get a random name (`vivid-hare-02`) and can read, paste and download immediately.
+- **Everything expires.** Messages fade after 5 minutes, channels after 1 hour, files after 2 downloads (all configurable).
+- **Async by design.** Unlike WebRTC tools, the receiver does not have to be online when you send.
+- **Controlled uploads.** Only invited, signed-in users can upload files, so a public instance is not an open file host.
+
+## Features
+
+| | |
 |---|---|
-| 消息留存 | 5 分钟（频道创建者可改，或设为"随频道"） |
-| 频道寿命 | 1 小时（创建者可改：匿名最长 24h，登录用户最长 7 天） |
-| 文件 | 仅登录用户可上传，任何人可下载；默认 2 次下载后销毁，否则随频道销毁 |
-| 单文件上限 | 100 MB |
+| 💬 **Channels** | 7-character `[0-9a-z]` IDs (`/c/k2z0vm2`), real-time sync over WebSocket, presence avatars |
+| 📝 **Rich text** | Per-message Plain / Markdown switch, GFM tables, KaTeX (`$…$`, `$$…$$`, `\(…\)`, `\[…\]`), code blocks with copy button |
+| ✏️ **Editing** | Edit your own messages (`✎ edited at hh:mm:ss`), one-click copy, delete |
+| 📦 **Files** | Drag & drop or paste to upload, SHA-256 shown, per-file download cap and lifetime |
+| ⏳ **Lifetimes** | Channel owner sets message retention (or "until channel ends") and channel lifetime |
+| 🔐 **Accounts** | Invite-only registration, admin UI and CLI for invite codes |
+| 🎨 **UI** | Light / dark theme, animated ASCII background, works on phones |
 
-功能：Plain / Markdown 切换（气泡右上角 switch，支持 GFM 表格、KaTeX 公式 `$…$` `$$…$$` `\(…\)` `\[…\]`、代码块复制）、一键复制、编辑消息（显示 `✎ edited at hh:mm:ss`）、WebSocket 实时同步、拖拽/粘贴上传、明暗主题、ASCII 动画背景。
+### Default rules
 
-## 部署
+| Rule | Default |
+|---|---|
+| Message retention | 5 minutes (owner can change, or keep until the channel ends) |
+| Channel lifetime | 1 hour (owner can change: up to 24 h for guests, 7 days for signed-in users) |
+| Files | Upload requires an account; anyone in the channel can download. Deleted after 2 downloads or when the channel ends |
+| Max file size | 100 MB |
+
+## How it compares
+
+| | **WanDrop** | [PairDrop](https://github.com/schlagmichdoch/PairDrop) | [Chitchatter](https://github.com/jeremyckahn/chitchatter) | [enchat](https://github.com/sudodevdante/enchat) | [PsiTransfer](https://github.com/psi-4ward/psitransfer) | [Send](https://github.com/timvisee/send) | [PrivateBin](https://github.com/PrivateBin/PrivateBin) | [pcopy](https://github.com/binwiederhier/pcopy) | [ClipCascade](https://github.com/Sathvik-Rao/ClipCascade) | [Mattermost](https://github.com/mattermost/mattermost) / [Rocket.Chat](https://github.com/RocketChat/Rocket.Chat) |
+|---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
+| Shape | IM channels | P2P device drop | P2P chat rooms | Terminal chat | File buckets | File links | Pastebin | Clipboard + links | Clipboard sync | Team chat |
+| Chat-style rooms | ✅ | ➖ | ✅ | ✅ | ❌ | ❌ | ➖ comments | ❌ | ❌ | ✅ |
+| Receiver can be offline | ✅ | ❌ | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Message history while room lives | ✅ | ❌ | ❌ | ❌ | – | – | ✅ | ✅ | ➖ | ✅ |
+| Edit messages | ✅ | ❌ | ❌ | ❌ | – | – | ❌ | – | – | ✅ |
+| Markdown + math | ✅ | ❌ | ➖ | ❌ | – | – | ➖ | ❌ | ❌ | ➖ |
+| Auto-expiry of everything | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ➖ | ❌ |
+| Per-file download limit | ✅ | – | – | – | ✅ one-time | ✅ | ➖ burn | ❌ | ❌ | ❌ |
+| Guests without sign-up | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ➖ | ❌ | ❌ |
+| Uploads restricted to members | ✅ | ❌ | ❌ | ❌ | ➖ password | ➖ | ❌ | ➖ password | ✅ | ✅ |
+| Invite-only accounts | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ➖ | ✅ |
+| End-to-end encryption | ❌ | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ | ❌ | ✅ | ❌ |
+| Footprint | 1 small container | 1 container | static site | Python CLI + relay | 1 container | 1 container (+ Redis) | PHP app | Go binary | 1 container | DB + several services |
+
+✅ yes · ➖ partial / optional · ❌ no · – not applicable. Based on each project's public docs at the time of writing; corrections are welcome.
+
+**Where WanDrop fits:** it sits between a pastebin and a team chat. You get the chat-room flow (several people, several messages and files, editing, Markdown) of Mattermost with the "nothing survives" guarantees of PsiTransfer or PrivateBin, and none of the "both devices must be online" constraint of WebRTC tools.
+
+**What it does *not* do:** content is encrypted in transit (behind HTTPS) but not end-to-end; the server can read messages and files until they expire. If that matters, use PrivateBin, Send or a P2P tool.
+
+## Quick start
 
 ```bash
-cp .env.example .env        # 至少修改 ADMIN_USERNAME / ADMIN_PASSWORD
+cp .env.example .env
 docker compose up -d --build
-# http://127.0.0.1:8080
+docker compose logs wandrop | grep "Admin account"   # one-time generated admin password
+# open http://127.0.0.1:8080
 ```
 
-默认只监听 `127.0.0.1`；公网访问请放在 HTTPS 反向代理之后，并设置：
+The port is bound to `127.0.0.1` by default. For public access, put WanDrop behind an HTTPS reverse proxy and set:
 
 ```env
 COOKIE_SECURE=true
@@ -27,44 +101,61 @@ TRUST_PROXY=true
 ALLOWED_ORIGINS=https://drop.example.com
 ```
 
-反向代理需要转发 WebSocket（`/ws`），并允许 ≥100 MB 的请求体（nginx：`client_max_body_size 110m;`）。
+The proxy must forward WebSocket upgrades on `/ws` and allow request bodies of at least 100 MB (nginx: `client_max_body_size 110m;`).
 
-## 账号与邀请码
+## Admin account and invites
 
-注册必须使用邀请码。管理员账号在首次启动时根据 `ADMIN_USERNAME` / `ADMIN_PASSWORD` 创建。
+Registration requires an invite code. The first admin is created on first boot:
 
-- 网页：以管理员登录后，点右上角账号 → *Manage invite codes*
-- 命令行：
+- **Generated password (recommended).** Leave `ADMIN_PASSWORD` empty. A random password is printed once in the logs.
+- **Docker secret.** Set `ADMIN_PASSWORD_FILE=/run/secrets/…` (see the commented `secrets:` block in `docker-compose.yml`).
+- **Plain variable.** `ADMIN_PASSWORD=…` works, but placeholders such as `change-me-please` are rejected.
+
+`ADMIN_*` are only read while no admin exists. After that they are ignored (and a warning is logged if the password is still set), so remove it from `.env`.
+
+Manage invites in the web UI (account chip → *Manage invite codes*) or with the CLI:
 
 ```bash
-docker compose exec wandrop /nodejs/bin/node server/admin.js invite 5 24   # 5 次可用，24 小时有效
+docker compose exec wandrop /nodejs/bin/node server/admin.js invite 5 24    # 5 uses, valid 24 h
 docker compose exec wandrop /nodejs/bin/node server/admin.js invites
 docker compose exec wandrop /nodejs/bin/node server/admin.js users
+docker compose exec wandrop /nodejs/bin/node server/admin.js passwd admin   # new random password, signs out all sessions
 ```
 
-## 安全设计
+## Security
 
-- **文件名永不进入路径或命令**：磁盘上的文件名是服务端生成的随机 ID；原始文件名经过 NFC 规范化，并去掉控制字符、双向覆盖字符（RLO 等）、路径分隔符和 shell 元字符，之后只存进数据库，前端一律以纯文本渲染。整个代码库不调用 `child_process`。
-- **下载**：固定 `application/octet-stream` + `Content-Disposition: attachment`（RFC 5987）+ `nosniff` + `CSP: sandbox`，用户上传的 HTML/SVG 永远不会在本站以页面形式渲染。下载需先 POST 换取 60 秒一次性票据，防止链接预览或预取消耗下载次数。下载计数在 SQLite 中原子递增，并发也不会超发。
-- **上传**：流式写入并实时计量，超过上限立即中止并删除临时文件；同时限制频道配额、全局配额和每频道文件数。
-- **Web**：严格 CSP（禁止内联脚本）、Markdown 禁用原始 HTML 并经 DOMPurify 清洗、HttpOnly + SameSite cookie、写操作和 WebSocket 都做同源校验、登录/注册/上传/发消息分别限速、scrypt 密码哈希。
-- **容器**：distroless 运行镜像（无 shell、无包管理器），非 root（uid 65532），只读根文件系统，`cap_drop: ALL`，`no-new-privileges`，并限制 pids/内存/CPU。唯一可写位置是 `/data` 卷（SQLite + 文件，权限 0600）和一个 `noexec` 的 `/tmp` tmpfs。
+- **File names never reach a path or a command.** Blobs are stored under random server-generated IDs. The original name is NFC-normalised, stripped of control characters, bidi overrides (RLO etc.), path separators and shell metacharacters, stored only in the database and always rendered as text. The codebase never calls `child_process`.
+- **Downloads** are always `application/octet-stream` with `Content-Disposition: attachment` (RFC 5987), `nosniff` and `CSP: sandbox`, so uploaded HTML/SVG is never rendered as a page on this origin. A download first exchanges a POST for a 60-second single-use ticket, so link previews and prefetchers cannot burn download counts. The counter is incremented atomically in SQLite, so concurrent requests cannot exceed the limit.
+- **Uploads** are streamed and metered; exceeding the limit aborts and deletes the temp file immediately. Per-channel quota, global quota and files-per-channel limits apply.
+- **Web:** strict CSP (no inline scripts), Markdown with raw HTML disabled and DOMPurify sanitisation, HttpOnly + SameSite cookies, same-origin checks for writes and WebSocket upgrades, rate limits on login, registration, upload and send, scrypt password hashing.
+- **Container:** distroless runtime (no shell, no package manager), non-root (uid 65532), read-only root filesystem, `cap_drop: ALL`, `no-new-privileges`, pids/memory/CPU limits. The only writable places are the `/data` volume (SQLite + files, mode 0600) and a `noexec` `/tmp` tmpfs.
 
-## 配置
+## Configuration
 
-见 `.env.example`。常用项：`MAX_FILE_MB`、`CHANNEL_QUOTA_MB`、`GLOBAL_QUOTA_MB`、`DEFAULT_MAX_DOWNLOADS`、`MSG_TTL_DEFAULT`、`CHANNEL_TTL_DEFAULT`、`CHANNEL_TTL_MAX_ANON`、`CHANNEL_TTL_MAX_USER`。
+All options live in [`.env.example`](.env.example). The common ones:
 
-## 本地开发
+| Variable | Default | Meaning |
+|---|---|---|
+| `ADMIN_USERNAME` / `ADMIN_PASSWORD` / `ADMIN_PASSWORD_FILE` | `admin` / generated | First-boot admin |
+| `MSG_TTL_DEFAULT` | `300` | Message retention for new channels (s) |
+| `CHANNEL_TTL_DEFAULT` | `3600` | Lifetime of new channels (s) |
+| `CHANNEL_TTL_MAX_ANON` / `CHANNEL_TTL_MAX_USER` | `86400` / `604800` | Max lifetime a guest / member can set (s) |
+| `MAX_FILE_MB` | `100` | Max size per file |
+| `CHANNEL_QUOTA_MB` / `GLOBAL_QUOTA_MB` | `1024` / `20480` | Storage quotas |
+| `DEFAULT_MAX_DOWNLOADS` | `2` | Download cap for new files |
+| `COOKIE_SECRET` / `COOKIE_SECRET_FILE` | generated | Cookie signing secret (≥ 32 chars); persisted in the volume if unset |
+
+## Development
 
 ```bash
 npm install
-npm run build && DATA_DIR=./data ADMIN_USERNAME=admin ADMIN_PASSWORD=adminpass123 npm start
-# 或前端热更新：先启动后端 (PORT=8080)，再 npm run dev
+npm run build && DATA_DIR=./data npm start
+# or with hot reload: start the backend on PORT=8080, then
+npm run dev
 ```
 
-## 结构
-
 ```
-server/   Fastify 后端（auth / channels / messages / files / ws / sweeper）
-web/      Vite 前端（原生 JS + markdown-it + KaTeX + DOMPurify）
+server/   Fastify backend (auth / channels / messages / files / ws / sweeper)
+web/      Vite frontend (vanilla JS + markdown-it + KaTeX + DOMPurify)
+docs/     Screenshots
 ```

@@ -16,6 +16,12 @@ function bool(key, fallback = false) {
   return fallback;
 }
 
+/** Read KEY, or the contents of the file named by KEY_FILE (Docker / Kubernetes secrets). */
+function secret(key) {
+  if (env[`${key}_FILE`]) return fs.readFileSync(env[`${key}_FILE`], 'utf8').trim();
+  return env[key] || '';
+}
+
 const MB = 1024 * 1024;
 const dataDir = path.resolve(env.DATA_DIR || '/data');
 
@@ -34,8 +40,8 @@ const config = {
   // When empty the request Host header is used for same-origin checks.
   allowedOrigins: (env.ALLOWED_ORIGINS || '').split(',').map((s) => s.trim()).filter(Boolean),
 
-  adminUsername: env.ADMIN_USERNAME || '',
-  adminPassword: env.ADMIN_PASSWORD || '',
+  adminUsername: env.ADMIN_USERNAME || 'admin',
+  adminPassword: secret('ADMIN_PASSWORD'),
   sessionTtlSec: int('SESSION_TTL_SEC', 30 * 24 * 3600),
 
   // Channel / message lifetimes (seconds)
@@ -62,7 +68,8 @@ fs.mkdirSync(config.tmpDir, { recursive: true, mode: 0o700 });
 
 // Cookie signing secret: env wins, otherwise generated once and persisted in the data volume.
 function loadSecret() {
-  if (env.COOKIE_SECRET && env.COOKIE_SECRET.length >= 32) return env.COOKIE_SECRET;
+  const fromEnv = secret('COOKIE_SECRET');
+  if (fromEnv.length >= 32) return fromEnv;
   const file = path.join(dataDir, '.cookie-secret');
   try {
     const s = fs.readFileSync(file, 'utf8').trim();

@@ -34,6 +34,8 @@ const q = {
   countAdmins: db.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'admin'"),
   insertSession: db.prepare('INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)'),
   deleteSession: db.prepare('DELETE FROM sessions WHERE token_hash = ?'),
+  deleteUserSessions: db.prepare('DELETE FROM sessions WHERE user_id = ?'),
+  updatePassword: db.prepare('UPDATE users SET pass_hash = ? WHERE id = ?'),
   invite: db.prepare('SELECT * FROM invites WHERE code = ?'),
   useInvite: db.prepare(`UPDATE invites SET used_count = used_count + 1
     WHERE code = ? AND used_count < max_uses AND (expires_at IS NULL OR expires_at > ?)`),
@@ -42,18 +44,46 @@ const q = {
   deleteInvite: db.prepare('DELETE FROM invites WHERE code = ?'),
 };
 
+const PLACEHOLDER_PASSWORDS = new Set(['change-me-please', 'changeme', 'password', 'admin']);
+
+/**
+ * Bootstrap the first admin. ADMIN_* are only read while no admin exists; afterwards they
+ * are ignored, so they can (and should) be removed from the environment.
+ */
 export async function ensureAdmin(log) {
-  if (!config.adminUsername || !config.adminPassword) {
-    if (q.countAdmins.get().n === 0) log.warn('No admin account: set ADMIN_USERNAME and ADMIN_PASSWORD to create one.');
+  const { adminUsername: username, adminPassword } = config;
+  if (q.countAdmins.get().n > 0) {
+    if (adminPassword) log.warn('An admin already exists, so ADMIN_PASSWORD is ignored; remove it from your environment.');
     return;
   }
-  if (q.userByName.get(config.adminUsername)) return;
-  if (!USERNAME_RE.test(config.adminUsername) || config.adminPassword.length < 8) {
-    log.error('ADMIN_USERNAME must match [A-Za-z0-9_-]{3,32} and ADMIN_PASSWORD must be >= 8 chars');
+  if (!USERNAME_RE.test(username)) {
+    log.error('ADMIN_USERNAME must match [A-Za-z0-9_-]{3,32}');
     return;
   }
-  q.insertUser.run(config.adminUsername, await hashPassword(config.adminPassword), 'admin', now());
-  log.info(`Admin account "${config.adminUsername}" created`);
+  if (adminPassword && (adminPassword.length < 8 || PLACEHOLDER_PASSWORDS.has(adminPassword.toLowerCase()))) {
+    log.error('ADMIN_PASSWORD must be at least 8 characters and not a placeholder; no admin was created.');
+    return;
+  }
+  const password = adminPassword || randomId(18);
+  if (q.userByName.get(username)) {
+    log.error(`User "${username}" already exists but is not an admin; pick another ADMIN_USERNAME.`);
+    return;
+  }
+  q.insertUser.run(username, await hashPassword(password), 'admin', now());
+  if (adminPassword) log.info(`Admin account "${username}" created`);
+  else log.warn(`Admin account "${username}" created with generated password: ${password}  (shown once; change it with "node server/admin.js passwd ${username}")`);
+}
+
+/** Replace a user's password and sign out all of their sessions. */
+export async function setPassword(username, password) {
+  const user = q.userByName.get(username);
+  if (!user) return false;
+  const hash = await hashPassword(password);
+  tx(() => {
+    q.updatePassword.run(hash, user.id);
+    q.deleteUserSessions.run(user.id);
+  })();
+  return true;
 }
 
 export function createInvite({ createdBy = null, maxUses = 1, ttlSec = 7 * 24 * 3600 } = {}) {
