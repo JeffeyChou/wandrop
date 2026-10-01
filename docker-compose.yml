@@ -1,0 +1,32 @@
+services:
+  wandrop:
+    build: .
+    image: wandrop:latest
+    container_name: wandrop
+    restart: unless-stopped
+    init: true
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+    ports:
+      - "${WANDROP_BIND:-127.0.0.1}:${WANDROP_PORT:-8080}:8080"
+    volumes:
+      - wandrop-data:/data
+    # --- hardening ---
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=16m
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 512m
+    cpus: 1.0
+    ulimits:
+      nofile: { soft: 4096, hard: 4096 }
+
+volumes:
+  wandrop-data:

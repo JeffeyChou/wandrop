@@ -1,0 +1,32 @@
+{
+  "name": "wandrop",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Ephemeral web clipboard and temporary file drop, organised as IM channels.",
+  "scripts": {
+    "dev": "vite --config web/vite.config.js",
+    "build": "vite build --config web/vite.config.js",
+    "start": "node server/index.js",
+    "admin": "node server/admin.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@fastify/cookie": "^11.1.2",
+    "@fastify/multipart": "^10.1.2",
+    "@fastify/rate-limit": "^11.2.0",
+    "@fastify/static": "^10.1.5",
+    "@fastify/websocket": "^11.3.1",
+    "better-sqlite3": "^13.0.3",
+    "fastify": "^5.12.5"
+  },
+  "devDependencies": {
+    "@fontsource/jetbrains-mono": "^5.3.0",
+    "dompurify": "^3.4.16",
+    "katex": "^0.19.0",
+    "markdown-it": "^15.0.2",
+    "vite": "^8.3.2"
+  }
+}
