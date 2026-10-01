@@ -1,5 +1,6 @@
 import { api } from './api.js';
 import { ResumableUpload } from './uploader.js';
+import { compressImage, isImageFile } from './imaging.js';
 import {
   h, icon, iconButton, toast, copyText, copyButton, modal, switchToggle, clock, remaining, bytes, duration, hueOf, confirmDialog,
 } from './ui.js';
@@ -10,6 +11,7 @@ import { rememberChannel, forgetChannel } from './recent.js';
 
 const MSG_TTL_OPTIONS = [60, 300, 900, 1800, 3600, 6 * 3600, 24 * 3600, 3 * 86400, 7 * 86400];
 const CHANNEL_TTL_OPTIONS = [600, 1800, 3600, 3 * 3600, 6 * 3600, 12 * 3600, 86400, 3 * 86400, 7 * 86400];
+const INLINE_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
 const FILE_TTL_OPTIONS = [600, 1800, 3600, 3 * 3600, 6 * 3600, 86400, 3 * 86400];
 
 export async function mountChannel(app, me, channelId) {
@@ -22,6 +24,8 @@ export async function mountChannel(app, me, channelId) {
     files: new Map(),
     view: new Map(), // message id -> 'plain' | 'md' (per-viewer bubble switch)
     editing: new Set(),
+    burned: new Set(), // read-limited messages destroyed on the server that this viewer still shows
+    revealing: new Set(),
     uploads: new Map(), // upload id -> { up: ResumableUpload, el }
     closed: false,
   };
@@ -148,18 +152,24 @@ export async function mountChannel(app, me, channelId) {
   // ----- message bubble -----
   function messageEl(m) {
     const mine = m.authorTag === me.tag;
+    const burned = S.burned.has(m.id);
+    const text = !m.sealed && !m.isImage;
     const mode = S.view.get(m.id) || m.format;
     const body = h('div', { class: 'msg-body' });
     const paint = (md) => body.replaceChildren(md ? renderMarkdown(m.body) : renderPlain(m.body));
-    paint(mode === 'md');
+    if (m.sealed) body.replaceChildren(sealedEl(m));
+    else if (m.isImage) body.replaceChildren(m.image ? imageEl(m) : h('p', { class: 'muted' }, 'Image unavailable'));
+    else paint(mode === 'md');
 
     const tools = h('div', { class: 'msg-tools' },
-      switchToggle('MD', mode === 'md', (on) => { S.view.set(m.id, on ? 'md' : 'plain'); paint(on); }, 'Render as Markdown'),
-      copyButton(() => m.body, 'Copy text'),
-      mine ? iconButton('pen', 'Edit', () => startEdit(m, el, body)) : null,
-      mine || isOwner() ? iconButton('trash', 'Delete', () => del(`/api/channels/${channelId}/messages/${m.id}`, 'Delete message?', 'This message will be removed for everyone in the channel.'), 'danger') : null);
+      text ? switchToggle('MD', mode === 'md', (on) => { S.view.set(m.id, on ? 'md' : 'plain'); paint(on); }, 'Render as Markdown') : null,
+      text ? copyButton(() => m.body, 'Copy text') : null,
+      m.image ? h('a', { class: 'icon-btn', href: m.image.url, download: `image-${m.id}.${m.image.mime.split('/')[1]}`, title: 'Download image', 'aria-label': 'Download image' }, icon('download')) : null,
+      mine && !burned ? iconButton('flame', 'Burn after reading…', () => openLimitSettings(m), m.maxReads !== null ? 'on' : '') : null,
+      mine && text && !burned ? iconButton('pen', 'Edit', () => startEdit(m, el, body)) : null,
+      (mine || isOwner()) && !burned ? iconButton('trash', 'Delete', () => del(`/api/channels/${channelId}/messages/${m.id}`, 'Delete message?', 'This message will be removed for everyone in the channel.'), 'danger') : null);
 
-    const el = h('article', { class: `msg glass ${mine ? 'mine' : ''}`, dataset: { id: m.id, t: m.createdAt } },
+    const el = h('article', { class: `msg glass ${mine ? 'mine' : ''} ${burned ? 'burned' : ''}`, dataset: { id: m.id, t: m.createdAt } },
       h('div', { class: 'msg-head' },
         avatar(m.authorName, m.authorTag),
         h('span', { class: 'author' }, m.authorName),
@@ -170,9 +180,95 @@ export async function mountChannel(app, me, channelId) {
       h('div', { class: 'msg-foot' },
         m.editedAt ? h('span', { class: 'edited' }, icon('pen'), `edited at ${clock(m.editedAt)}`) : null,
         h('span', { class: 'grow' }),
-        lifeChip(m.createdAt, m.expiresAt)),
-      lifeBar(m.createdAt, m.expiresAt));
+        m.maxReads !== null || burned ? readsChip(m, burned) : lifeChip(m.createdAt, m.expiresAt)),
+      m.maxReads === null ? lifeBar(m.createdAt, m.expiresAt) : null);
     return el;
+  }
+
+  function viewsLeft(m) { return Math.max(m.maxReads - m.reads, 0); }
+  function plural(n, word) { return `${n} ${word}${n === 1 ? '' : 's'}`; }
+
+  function readsChip(m, burned) {
+    if (burned) return h('span', { class: 'life burn', title: 'Destroyed on the server; you can see it until you leave' }, icon('flame'), 'burned · gone for everyone else');
+    const left = viewsLeft(m);
+    return h('span', { class: `life burn ${left <= 1 ? 'warn' : ''}`, title: `Opened by ${m.reads} of ${m.maxReads} · the sender does not count` },
+      icon('flame'), `${plural(left, 'view')} left`);
+  }
+
+  function sealedEl(m) {
+    const btn = h('button', { type: 'button', class: 'btn primary sm', onClick: () => reveal(m, btn) }, icon('flame'), 'Open');
+    return h('div', { class: 'sealed' },
+      icon(m.isImage ? 'image' : 'flame'),
+      h('div', { class: 'grow' },
+        h('strong', {}, m.isImage ? 'Image · burns after reading' : 'Burns after reading'),
+        h('div', { class: 'muted small' }, `${plural(viewsLeft(m), 'view')} left · opening it uses one`)),
+      btn);
+  }
+
+  function imageEl(m) {
+    const img = h('img', { class: 'msg-image', src: m.image.url, alt: 'Image', loading: 'lazy' });
+    return h('button', { type: 'button', class: 'image-btn', title: 'View full size', onClick: () => openImage(m.image.url) }, img);
+  }
+
+  function openImage(url) {
+    const m = modal('Image', h('div', { class: 'lightbox' }, h('img', { src: url, alt: 'Image' })), { wide: true });
+    m.card.classList.add('xwide');
+  }
+
+  async function reveal(m, btn) {
+    btn.disabled = true;
+    S.revealing.add(m.id);
+    try {
+      const { message, burned } = await api('POST', `/api/channels/${channelId}/messages/${m.id}/read`);
+      S.messages.set(message.id, message);
+      if (burned) S.burned.add(message.id);
+      const el = messageEl(message);
+      if (timeline.querySelector(`[data-id="${CSS.escape(m.id)}"]`)) replaceEl(m.id, el);
+      else insertSorted(el, message.createdAt);
+    } catch (e) {
+      if (e.status === 404) {
+        S.messages.delete(m.id);
+        removeEl(m.id);
+        toast('Too late: this message has already burned', 'error');
+      } else {
+        toast(e.message, 'error');
+        btn.disabled = false;
+      }
+    } finally {
+      S.revealing.delete(m.id);
+    }
+  }
+
+  function openLimitSettings(m) {
+    const forced = S.channel.msgMode === 'reads';
+    let on = m.maxReads !== null;
+    const count = h('input', { type: 'number', min: m.reads + 1, max: S.limits.maxReadsCap, required: true });
+    count.value = m.maxReads ?? Math.max(1, m.reads + 1);
+    const countField = h('label', { class: 'field' }, h('span', {}, 'Destroy after this many views'), count,
+      h('small', { class: 'muted' }, `Each viewer counts once; you do not count.${m.reads ? ` Opened ${m.reads}× so far.` : ''}`));
+    const sw = switchToggle('Burn after reading', on, (v) => { on = v; countField.hidden = !v; });
+    if (forced) sw.disabled = true;
+    countField.hidden = !on;
+    const err = h('p', { class: 'form-error' });
+    const dlg = modal('Message lifetime', h('form', {
+      class: 'stack',
+      onSubmit: async (e) => {
+        e.preventDefault();
+        try {
+          const { message } = await api('PATCH', `/api/channels/${channelId}/messages/${m.id}/limit`, { maxReads: on ? Number(count.value) : null });
+          S.messages.set(message.id, message);
+          replaceEl(message.id, messageEl(message));
+          dlg.close();
+        } catch (ex) {
+          err.textContent = ex.message;
+        }
+      },
+    },
+    h('div', { class: 'field' }, sw, h('small', { class: 'muted' }, forced
+      ? 'This channel destroys every message after it was read; you can change the number of views.'
+      : 'Instead of fading after the channel\'s retention time, the message is destroyed once enough people opened it.')),
+    countField, err,
+    h('button', { type: 'submit', class: 'btn primary block' }, 'Save')));
   }
 
   function startEdit(m, el, body) {
@@ -222,7 +318,12 @@ export async function mountChannel(app, me, channelId) {
       ? h('button', { type: 'button', class: 'btn sm', disabled: true, title: 'The uploader can raise the limit in file settings' }, icon('lock'), 'Limit reached')
       : h('button', { type: 'button', class: 'btn primary sm', onClick: () => download(f, dlBtn) }, icon('download'), 'Download');
 
-    return h('article', { class: `file glass ${mine ? 'mine' : ''} ${exhausted ? 'exhausted' : ''}`, dataset: { id: f.id, t: f.createdAt } },
+    const thumb = f.preview
+      ? h('button', { type: 'button', class: 'image-btn file-thumb', title: 'Preview (compressed)', onClick: () => openImage(f.preview.url) },
+        h('img', { src: f.preview.url, alt: `Preview of ${f.name}`, loading: 'lazy' }))
+      : null;
+    return h('article', { class: `file glass ${mine ? 'mine' : ''} ${exhausted ? 'exhausted' : ''} ${thumb ? 'has-thumb' : ''}`, dataset: { id: f.id, t: f.createdAt } },
+      thumb,
       h('div', { class: 'file-ext', style: { '--h': hueOf(f.sha256) } }, ext),
       h('div', { class: 'file-main' },
         h('div', { class: 'file-name', title: f.name }, f.name),
@@ -308,6 +409,7 @@ export async function mountChannel(app, me, channelId) {
         S.files.set(up.result.id, up.result);
         insertSorted(fileEl(up.result), up.result.createdAt);
       }
+      if (up.result && up.file && isImageFile(up.file)) attachPreview(up.result.id, up.file);
       refreshUsage();
     } else if (up.state === 'failed') {
       toast(`${up.record.name}: ${up.error}`, 'error');
@@ -345,6 +447,47 @@ export async function mountChannel(app, me, channelId) {
       if (m.upload) S.limits.upload = m.upload;
       composer.refresh();
     } catch { /* ignore */ }
+  }
+
+  /** Pasted pictures: compress, then send as an inline image message. */
+  async function sendPastedImage(file) {
+    if (!me.isUser) return openAuthModal('Log in to send images. Guests can still view them.');
+    const small = await compressImage(file);
+    // Keep the original when it cannot be decoded here or is already smaller (e.g. a tiny PNG).
+    const blob = small && small.size < file.size ? small : file;
+    if (!INLINE_IMAGE_TYPES.includes(blob.type)) return uploadFiles([file]);
+    if (blob.size > S.limits.maxImageBytes) return toast(`Image is larger than ${bytes(S.limits.maxImageBytes)}; attach it as a file instead`, 'error');
+    await sendImage(blob, file.name);
+  }
+
+  /** Attach a compressed preview to an uploaded image file. Best effort: the file works without it. */
+  async function attachPreview(fileId, file) {
+    try {
+      const preview = await compressImage(file, { maxDim: 1280, quality: 0.75 });
+      if (!preview || !INLINE_IMAGE_TYPES.includes(preview.type)) return;
+      await fetch(`/api/channels/${channelId}/files/${fileId}/preview`, {
+        method: 'PUT', credentials: 'same-origin', headers: { 'content-type': preview.type }, body: preview,
+      });
+    } catch { /* no preview then */ }
+  }
+
+  async function sendImage(file, name = 'image') {
+    if (file.size > 1024 * 1024) toast(`Sending ${name}…`);
+    try {
+      const res = await fetch(`/api/channels/${channelId}/images`, {
+        method: 'POST', credentials: 'same-origin', headers: { 'content-type': file.type }, body: file,
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error || `Request failed (${res.status})`);
+      if (!S.messages.has(data.message.id)) {
+        S.messages.set(data.message.id, data.message);
+        insertSorted(messageEl(data.message), data.message.createdAt);
+      }
+      scrollToBottom(true);
+      refreshUsage();
+    } catch (e) {
+      toast(`${name}: ${e.message}`, 'error');
+    }
   }
 
   async function uploadFiles(fileList) {
@@ -418,7 +561,14 @@ export async function mountChannel(app, me, channelId) {
     });
     ta.addEventListener('paste', (e) => {
       const files = [...(e.clipboardData?.files || [])];
-      if (files.length) { e.preventDefault(); uploadFiles(files); }
+      if (!files.length) return;
+      e.preventDefault();
+      (async () => {
+        for (const f of files) {
+          if (isImageFile(f)) await sendPastedImage(f);
+          else await uploadFiles([f]);
+        }
+      })();
     });
     sendBtn.addEventListener('click', send);
     fileInput.addEventListener('change', () => { uploadFiles([...fileInput.files]); fileInput.value = ''; });
@@ -433,8 +583,10 @@ export async function mountChannel(app, me, channelId) {
         const ttl = S.channel.msgTtlSec;
         attach.classList.toggle('locked', !me.isUser);
         hint.replaceChildren(
-          h('span', {}, `Ctrl/⌘ + Enter to send · ${ttl ? `messages fade after ${duration(ttl)}` : 'messages stay until the channel dissolves'}`),
-          h('span', {}, me.isUser ? `${uploadHint(S.limits.upload)} · drag, paste or 📎` : 'Guest: clipboard only · log in to upload'));
+          h('span', {}, `Ctrl/⌘ + Enter to send · ${S.channel.msgMode === 'reads'
+            ? `messages burn after ${S.channel.msgMaxReads} view${S.channel.msgMaxReads === 1 ? '' : 's'}`
+            : ttl ? `messages fade after ${duration(ttl)}` : 'messages stay until the channel dissolves'}`),
+          h('span', {}, me.isUser ? `${uploadHint(S.limits.upload)} · drag, paste or 📎 · pasted images are compressed, attached ones sent as original` : 'Guest: clipboard only · log in to upload'));
       },
     };
   }
@@ -457,16 +609,27 @@ export async function mountChannel(app, me, channelId) {
     const msgSel = select(msgOpts.sort((a, b) => a - b), c.msgTtlSec, duration, [[0, 'Until channel dissolves']]);
     const chanSel = select(CHANNEL_TTL_OPTIONS.filter((s) => s <= c.maxTtlSec), '', (s) => `${duration(s)} from now`, [['', `Keep current (${remaining(c.expiresAt - serverNow())} left)`]]);
     const err = h('p', { class: 'form-error' });
+    let mode = c.msgMode;
+    const readsIn = h('input', { type: 'number', min: 1, max: S.limits.maxReadsCap, required: true });
+    readsIn.value = c.msgMaxReads;
+    const retentionField = h('label', { class: 'field' }, h('span', {}, 'Message retention'), msgSel,
+      h('small', { class: 'muted' }, 'Applies to existing messages too, counted from when each was sent. Senders can still make single messages burn after reading.'));
+    const readsField = h('label', { class: 'field' }, h('span', {}, 'Views per message'), readsIn,
+      h('small', { class: 'muted' }, 'Every message, including existing ones, is destroyed once this many people opened it. Senders do not count.'));
+    const syncMode = () => { retentionField.hidden = mode === 'reads'; readsField.hidden = mode !== 'reads'; };
+    const modeSwitch = switchToggle('Burn after reading', mode === 'reads', (on) => { mode = on ? 'reads' : 'time'; syncMode(); });
+    syncMode();
 
     const m = modal('Channel settings', h('form', {
       class: 'stack',
       onSubmit: async (e) => {
         e.preventDefault();
-        const body = { msgTtlSec: Number(msgSel.value) };
+        const body = { msgTtlSec: Number(msgSel.value), msgMode: mode, msgMaxReads: Number(readsIn.value) };
         if (chanSel.value) body.expiresInSec = Number(chanSel.value);
         try {
           const { channel } = await api('PATCH', `/api/channels/${channelId}`, body);
           S.channel = channel;
+          composer.refresh();
           toast('Settings saved', 'ok');
           m.close();
         } catch (ex) {
@@ -474,8 +637,9 @@ export async function mountChannel(app, me, channelId) {
         }
       },
     },
-    h('label', { class: 'field' }, h('span', {}, 'Message retention'), msgSel,
-      h('small', { class: 'muted' }, 'Applies to existing messages too, counted from when each was sent.')),
+    h('div', { class: 'field' }, h('span', {}, 'Messages are destroyed'), modeSwitch,
+      h('small', { class: 'muted' }, 'Off: after a time. On: after a number of views.')),
+    retentionField, readsField,
     h('label', { class: 'field' }, h('span', {}, 'Channel lifetime'), chanSel,
       h('small', { class: 'muted' }, `Max ${duration(c.maxTtlSec)} for ${c.ownerKind === 'user' ? 'member' : 'guest'}-owned channels. Files go with the channel.`)),
     err,
@@ -571,14 +735,35 @@ export async function mountChannel(app, me, channelId) {
         S.editing.delete(ev.id);
         removeEl(ev.id);
         break;
-      case 'messages:retimed':
-        for (const { id, expiresAt } of ev.messages) {
-          const m = S.messages.get(id);
-          if (!m) continue;
-          m.expiresAt = expiresAt;
-          if (!S.editing.has(id)) replaceEl(id, messageEl(m));
+      case 'messages:sync':
+        for (const msg of ev.messages) {
+          if (!S.messages.has(msg.id)) continue;
+          S.messages.set(msg.id, msg);
+          if (!S.editing.has(msg.id)) replaceEl(msg.id, messageEl(msg));
         }
         break;
+      case 'message:reads': {
+        const m = S.messages.get(ev.id);
+        if (!m) return;
+        Object.assign(m, { reads: ev.reads, maxReads: ev.maxReads });
+        if (!S.editing.has(ev.id)) replaceEl(ev.id, messageEl(m));
+        break;
+      }
+      case 'message:burned': {
+        const m = S.messages.get(ev.id);
+        if (!m || S.revealing.has(ev.id)) return;
+        // Whoever already sees the content keeps it until they leave; everyone else loses it now.
+        if (m.sealed) {
+          S.messages.delete(ev.id);
+          removeEl(ev.id);
+        } else {
+          S.burned.add(ev.id);
+          S.editing.delete(ev.id);
+          m.reads = m.maxReads ?? m.reads;
+          replaceEl(ev.id, messageEl(m));
+        }
+        break;
+      }
       case 'file:new':
         if (S.files.has(ev.file.id)) return;
         S.files.set(ev.file.id, ev.file);

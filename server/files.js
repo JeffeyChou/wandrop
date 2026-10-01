@@ -6,6 +6,7 @@ import { contentDisposition, clampInt } from './util/validate.js';
 import { q, getChannel, blobPath, unlinkBlob, serializeFile } from './store.js';
 import { loadChannel } from './channels.js';
 import { broadcast } from './ws.js';
+import { sniffImage, acceptImageBodies, imageHeaders } from './images.js';
 
 /** One-shot download tickets so link previewers / prefetchers can't burn download counts. */
 const tickets = new Map(); // token -> { fileId, exp }
@@ -19,6 +20,7 @@ setInterval(() => {
 export function destroyFile(file) {
   q.deleteFile.run(file.id);
   unlinkBlob(file.id);
+  if (file.preview_id) unlinkBlob(file.preview_id);
   broadcast(file.channel_id, 'file:delete', { id: file.id });
 }
 
@@ -56,6 +58,48 @@ export function parseFileOptions(input, reply, channel, file = null) {
 }
 
 export default async function fileRoutes(app) {
+  acceptImageBodies(app, config.maxPreviewBytes);
+
+  // The uploader's browser attaches a compressed preview to an image file. Viewing it is not a download.
+  app.put('/api/channels/:id/files/:fid/preview', {
+    bodyLimit: config.maxPreviewBytes, config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
+  }, async (request, reply) => {
+    const channel = loadChannel(request, reply);
+    if (!channel) return;
+    const f = loadFile(request, reply, channel);
+    if (!f) return;
+    if (f.uploader_key !== request.actor.key) return reply.code(403).send({ error: 'Only the uploader can add a preview' });
+    const mime = sniffImage(request.body);
+    if (!mime) return reply.code(415).send({ error: 'Preview must be a PNG, JPEG, GIF or WebP image' });
+    const previewId = randomId(18);
+    await fs.promises.writeFile(blobPath(previewId), request.body, { mode: 0o600 });
+    if (!q.fileById.get(f.id)) {
+      unlinkBlob(previewId);
+      return reply.code(404).send({ error: 'File not found' });
+    }
+    q.setPreview.run(previewId, mime, request.body.length, f.id);
+    if (f.preview_id) unlinkBlob(f.preview_id);
+    const file = serializeFile(q.file.get(f.id, channel.id));
+    broadcast(channel.id, 'file:update', { file });
+    return { file };
+  });
+
+  app.get('/api/channels/:id/files/:fid/preview', async (request, reply) => {
+    const channel = loadChannel(request, reply);
+    if (!channel) return;
+    const f = loadFile(request, reply, channel);
+    if (!f) return;
+    if (!f.preview_id) return reply.code(404).send({ error: 'No preview' });
+    let fh;
+    try {
+      fh = await fs.promises.open(blobPath(f.preview_id), 'r');
+    } catch {
+      return reply.code(404).send({ error: 'Preview is gone' });
+    }
+    imageHeaders(reply, f.preview_mime, f.preview_size, `preview-${f.id}`);
+    return reply.send(fh.createReadStream());
+  });
+
   app.patch('/api/channels/:id/files/:fid', async (request, reply) => {
     const channel = loadChannel(request, reply);
     if (!channel) return;

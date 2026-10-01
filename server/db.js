@@ -87,7 +87,36 @@ CREATE TABLE IF NOT EXISTS uploads (
 );
 CREATE INDEX IF NOT EXISTS uploads_channel ON uploads(channel_id);
 CREATE INDEX IF NOT EXISTS uploads_uploader ON uploads(uploader_key);
+
+-- Who has opened a read-limited message. The author never counts as a reader.
+CREATE TABLE IF NOT EXISTS message_reads (
+  message_id  TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+  reader_key  TEXT NOT NULL,
+  read_at     INTEGER NOT NULL,
+  PRIMARY KEY (message_id, reader_key)
+);
 `);
+
+/** Add columns introduced after the first release to existing databases. */
+function addColumn(table, column, ddl) {
+  if (!db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`);
+  }
+}
+// Burn after reading: a channel either expires messages by time or by number of readers.
+addColumn('channels', 'msg_mode', "TEXT NOT NULL DEFAULT 'time' CHECK (msg_mode IN ('time','reads'))");
+addColumn('channels', 'msg_max_reads', 'INTEGER NOT NULL DEFAULT 1');
+// max_reads NULL = time based; otherwise the message is destroyed once `reads` reaches it.
+addColumn('messages', 'max_reads', 'INTEGER');
+addColumn('messages', 'reads', 'INTEGER NOT NULL DEFAULT 0');
+// Image messages keep their blob under image_id in the files directory; it goes with the message.
+addColumn('messages', 'image_id', 'TEXT');
+addColumn('messages', 'image_mime', 'TEXT');
+addColumn('messages', 'image_size', 'INTEGER NOT NULL DEFAULT 0');
+// Compressed preview of an image file, uploaded by the sender's browser; the original stays untouched.
+addColumn('files', 'preview_id', 'TEXT');
+addColumn('files', 'preview_mime', 'TEXT');
+addColumn('files', 'preview_size', 'INTEGER NOT NULL DEFAULT 0');
 
 export default db;
 
