@@ -134,6 +134,8 @@ addColumn('messages', 'image_size', 'INTEGER NOT NULL DEFAULT 0');
 addColumn('files', 'preview_id', 'TEXT');
 addColumn('files', 'preview_mime', 'TEXT');
 addColumn('files', 'preview_size', 'INTEGER NOT NULL DEFAULT 0');
+// Secret for the file's direct download link (curl / wget). Created on first request for the link.
+addColumn('files', 'link_token', 'TEXT');
 
 export default db;
 

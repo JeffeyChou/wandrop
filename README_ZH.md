@@ -17,6 +17,14 @@
 | 单文件上限 | 普通用户 100 MB，管理员不限 |
 | 用户存储配额 | 每个普通用户 1 GB（文件删除或到期前都计入），管理员不限 |
 
+文件卡片上的 🔗 按钮可复制直接下载链接，无需浏览器会话，可在另一台机器上直接下载：
+
+```bash
+curl -fLOJ 'https://drop.example.com/dl/<文件ID>/<密钥>'
+```
+
+每次下载与浏览器下载一样计入下载次数上限；文件被锁定、到期或删除后链接失效。持有链接的人都能下载，请像密码一样分享。
+
 功能：可暂停 / 续传的分片上传（断网、刷新页面、服务器重启后都能接着传）、Plain / Markdown 切换（气泡右上角 switch，支持 GFM 表格、KaTeX 公式 `$…$` `$$…$$` `\(…\)` `\[…\]`、代码块复制）、一键复制、编辑消息（显示 `✎ edited at hh:mm:ss`）、WebSocket 实时同步、拖拽/粘贴上传、明暗主题、ASCII 动画背景。
 
 ## 部署
@@ -65,7 +73,7 @@ docker compose exec wandrop /nodejs/bin/node server/admin.js passwd admin   # �
 ## 安全设计
 
 - **文件名永不进入路径或命令**：磁盘上的文件名是服务端生成的随机 ID；原始文件名经过 NFC 规范化，并去掉控制字符、双向覆盖字符（RLO 等）、路径分隔符和 shell 元字符，之后只存进数据库，前端一律以纯文本渲染。整个代码库不调用 `child_process`。
-- **下载**：固定 `application/octet-stream` + `Content-Disposition: attachment`（RFC 5987）+ `nosniff` + `CSP: sandbox`，用户上传的 HTML/SVG 永远不会在本站以页面形式渲染。下载需先 POST 换取 60 秒一次性票据，防止链接预览或预取消耗下载次数。下载计数在 SQLite 中原子递增，并发也不会超发。
+- **下载**：固定 `application/octet-stream` + `Content-Disposition: attachment`（RFC 5987）+ `nosniff` + `CSP: sandbox`，用户上传的 HTML/SVG 永远不会在本站以页面形式渲染。下载需先 POST 换取 60 秒一次性票据，防止链接预览或预取消耗下载次数。复制的直接下载链接则带有每个文件独立的随机密钥（仅凭频道号无法构造）；`HEAD` 请求不计数，已知的链接预览机器人会被拒绝。下载计数在 SQLite 中原子递增，并发也不会超发。
 - **上传**：分片、可续传。开始前先按声明的大小检查单文件上限、用户配额、频道配额和全局配额并预留空间；每个分片必须从服务器记录的偏移开始，写盘时实时计量，不能超出声明大小；SHA-256 由服务器在完成后计算。
 - **Web**：严格 CSP（禁止内联脚本）、Markdown 禁用原始 HTML 并经 DOMPurify 清洗、HttpOnly + SameSite cookie、写操作和 WebSocket 都做同源校验、登录/注册/上传/发消息分别限速、scrypt 密码哈希。
 - **容器**：distroless 运行镜像（无 shell、无包管理器），非 root（uid 65532），只读根文件系统，`cap_drop: ALL`，`no-new-privileges`，并限制 pids/内存/CPU。唯一可写位置是 `/data` 卷（SQLite + 文件，权限 0600）和一个 `noexec` 的 `/tmp` tmpfs。

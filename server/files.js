@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import crypto from 'node:crypto';
 import { now } from './db.js';
 import config from './config.js';
 import { randomId, OPAQUE_ID_RE } from './util/ids.js';
@@ -23,6 +24,12 @@ export function destroyFile(file) {
   if (file.preview_id) unlinkBlob(file.preview_id);
   broadcast(file.channel_id, 'file:delete', { id: file.id });
 }
+
+// Link-preview fetchers (chat apps, crawlers) must not burn downloads of a pasted direct link.
+const PREVIEW_UA_RE = /bot|crawl|spider|preview|facebookexternalhit|whatsapp|slack|embedly|iframely/i;
+
+const sameToken = (a, b) => typeof a === 'string' && typeof b === 'string' && a.length === b.length
+  && crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
 
 function loadFile(request, reply, channel) {
   const id = String(request.params.fid ?? '');
@@ -138,6 +145,18 @@ export default async function fileRoutes(app) {
     return { url: `/dl/${token}` };
   });
 
+  // Direct link for curl / wget: no cookies, no ticket. It holds a per-file secret, so the channel
+  // code alone is not enough to fetch a file, and every GET counts like a normal download.
+  app.post('/api/channels/:id/files/:fid/link', { config: { rateLimit: { max: 60, timeWindow: '1 minute' } } }, async (request, reply) => {
+    const channel = loadChannel(request, reply);
+    if (!channel) return;
+    const f = loadFile(request, reply, channel);
+    if (!f) return;
+    if (f.max_downloads > 0 && f.downloads >= f.max_downloads) return reply.code(410).send({ error: 'Download limit reached' });
+    if (!f.link_token) q.setLinkToken.run(randomId(24), f.id);
+    return { url: `/dl/${f.id}/${q.fileById.get(f.id).link_token}` };
+  });
+
   // Step 2: redeem the ticket. Counts one download and streams the blob as an attachment.
   app.get('/dl/:token', async (request, reply) => {
     const token = String(request.params.token ?? '');
@@ -146,28 +165,56 @@ export default async function fileRoutes(app) {
     const gone = () => reply.code(410).type('text/plain; charset=utf-8').send('This download link has expired or the file is gone.');
     if (!ticket || ticket.exp <= now()) return gone();
 
-    const f = q.fileById.get(ticket.fileId);
-    if (!f || !getChannel(f.channel_id)) return gone();
+    return sendFile(q.fileById.get(ticket.fileId), reply, gone);
+  });
 
-    let fh;
-    try {
-      fh = await fs.promises.open(blobPath(f.id), 'r');
-    } catch {
-      return gone();
+  // HEAD is routed explicitly: Fastify's implicit HEAD route would replace the real Content-Length.
+  app.route({
+    method: ['GET', 'HEAD'],
+    url: '/dl/:fid/:token',
+    config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
+    handler: directDownload,
+  });
+
+  async function directDownload(request, reply) {
+    const gone = () => reply.code(410).type('text/plain; charset=utf-8').send('This download link is invalid, or the file is locked or gone.\n');
+    const id = String(request.params.fid ?? '');
+    const f = OPAQUE_ID_RE.test(id) ? q.fileById.get(id) : null;
+    if (!f || !sameToken(f.link_token, String(request.params.token ?? ''))) return gone();
+    if (PREVIEW_UA_RE.test(request.headers['user-agent'] ?? '')) {
+      return reply.code(403).type('text/plain; charset=utf-8').send('Link previews are not served; open the link with a browser, curl or wget.\n');
     }
+    // HEAD (curl -I) shows the headers without using up a download.
+    return sendFile(f, reply, gone, request.method === 'HEAD', true);
+  }
+}
+
+/** Count one download and stream the blob as an attachment, or reply `gone()` if the file is locked, expired or missing. */
+async function sendFile(f, reply, gone, peek = false, rawUtf8Name = false) {
+  if (!f || !getChannel(f.channel_id)) return gone();
+  if (peek && ((f.max_downloads > 0 && f.downloads >= f.max_downloads) || (f.expires_at && f.expires_at <= now()))) return gone();
+
+  let fh;
+  try {
+    fh = await fs.promises.open(blobPath(f.id), 'r');
+  } catch {
+    return gone();
+  }
+  if (peek) {
+    await fh.close();
+  } else {
     if (q.countDownload.run(f.id, now()).changes === 0) {
       await fh.close();
       return gone();
     }
-
     broadcast(f.channel_id, 'file:update', { file: serializeFile(q.fileById.get(f.id)) });
+  }
 
-    reply
-      .header('Content-Type', 'application/octet-stream')
-      .header('Content-Disposition', contentDisposition(f.name))
-      .header('Content-Length', String(f.size))
-      .header('Content-Security-Policy', "default-src 'none'; sandbox")
-      .header('Cache-Control', 'no-store');
-    return reply.send(fh.createReadStream());
-  });
+  reply
+    .header('Content-Type', 'application/octet-stream')
+    .header('Content-Disposition', contentDisposition(f.name, rawUtf8Name))
+    .header('Content-Length', String(f.size))
+    .header('Content-Security-Policy', "default-src 'none'; sandbox")
+    .header('Cache-Control', 'no-store');
+  return peek ? reply.send() : reply.send(fh.createReadStream());
 }

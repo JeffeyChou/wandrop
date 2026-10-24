@@ -72,14 +72,23 @@ export function toast(text, kind = 'info', ms = 2600) {
   }, ms);
 }
 
-/** Copy text to the clipboard (works on plain-http deployments too). */
+/**
+ * Copy text to the clipboard (works on plain-http deployments too). `text` may be a promise
+ * (e.g. a link fetched from the server); a rejected promise rejects the copy.
+ */
 export async function copyText(text) {
   try {
     if (navigator.clipboard && window.isSecureContext) {
-      await navigator.clipboard.writeText(text);
+      // A pending value goes through ClipboardItem so Safari keeps the click's user activation.
+      if (text instanceof Promise && window.ClipboardItem) {
+        await navigator.clipboard.write([new ClipboardItem({ 'text/plain': text.then((t) => new Blob([t], { type: 'text/plain' })) })]);
+      } else {
+        await navigator.clipboard.writeText(await text);
+      }
       return true;
     }
   } catch { /* fall through */ }
+  text = await text;
   const ta = h('textarea', { style: { position: 'fixed', top: '-1000px', opacity: '0' }, readonly: true });
   ta.value = text;
   document.body.append(ta);
@@ -90,15 +99,20 @@ export async function copyText(text) {
   return ok;
 }
 
-/** Copy button that flashes a check mark on success. */
-export function copyButton(getText, label = 'Copy') {
-  const btn = iconButton('copy', label, async () => {
-    const ok = await copyText(getText());
+/** Copy button that flashes a check mark on success. `getText` may return a promise. */
+export function copyButton(getText, label = 'Copy', iconName = 'copy') {
+  const btn = iconButton(iconName, label, async () => {
+    let ok;
+    try {
+      ok = await copyText(getText());
+    } catch (e) {
+      return toast(e.message, 'error');
+    }
     if (!ok) return toast('Copy failed', 'error');
     btn.replaceChildren(icon('check'));
     btn.classList.add('ok');
     setTimeout(() => {
-      btn.replaceChildren(icon('copy'));
+      btn.replaceChildren(icon(iconName));
       btn.classList.remove('ok');
     }, 1200);
   });

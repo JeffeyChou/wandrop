@@ -385,6 +385,7 @@ export async function mountChannel(app, me, channelId) {
           lifeChip(f.createdAt, f.expiresAt, 'until channel ends'))),
       h('div', { class: 'file-actions' },
         dlBtn,
+        exhausted ? null : copyButton(() => directLink(f), 'Copy download link (for curl / wget)', 'link'),
         mine ? iconButton('gear', 'File settings', () => openFileSettings(f)) : null,
         mine || isOwner() ? iconButton('trash', 'Delete file', () => del(`/api/channels/${channelId}/files/${f.id}`, 'Delete file?', `"${f.name}" will be removed for everyone in the channel.`), 'danger') : null));
   }
@@ -402,6 +403,12 @@ export async function mountChannel(app, me, channelId) {
     } finally {
       setTimeout(() => { btn.disabled = false; }, 800);
     }
+  }
+
+  // Absolute direct link that works without a browser session, e.g. `curl -fLOJ '<link>'`.
+  async function directLink(f) {
+    const { url } = await api('POST', `/api/channels/${channelId}/files/${f.id}/link`);
+    return new URL(url, location.origin).href;
   }
 
   async function del(url, title, message) {

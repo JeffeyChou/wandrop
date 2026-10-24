@@ -53,6 +53,7 @@ export const q = {
       + (SELECT COALESCE(SUM(image_size), 0) FROM messages) AS bytes`),
   insertFile: db.prepare(`INSERT INTO files (id, channel_id, uploader_key, uploader_name, name, size, sha256, max_downloads, created_at, expires_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+  setLinkToken: db.prepare('UPDATE files SET link_token = ? WHERE id = ? AND link_token IS NULL'),
   updateFile: db.prepare('UPDATE files SET max_downloads = ?, expires_at = ? WHERE id = ?'),
   countDownload: db.prepare(`UPDATE files SET downloads = downloads + 1
     WHERE id = ? AND (max_downloads = 0 OR downloads < max_downloads) AND (expires_at IS NULL OR expires_at > ?)`),

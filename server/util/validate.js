@@ -20,9 +20,15 @@ export function sanitizeFilename(raw) {
   return name;
 }
 
-/** RFC 6266 / 5987 Content-Disposition with an ASCII fallback. */
-export function contentDisposition(name) {
-  const ascii = name.replace(/[^A-Za-z0-9._ -]/g, '_') || 'file';
+/**
+ * RFC 6266 / 5987 Content-Disposition with an ASCII fallback. `rawUtf8` puts the UTF-8 bytes of the
+ * name in the plain `filename` instead, for `curl -OJ`, which ignores `filename*` (browsers prefer
+ * `filename*`). Safe because sanitizeFilename already strips quotes, backslashes and control chars.
+ */
+export function contentDisposition(name, rawUtf8 = false) {
+  const ascii = rawUtf8
+    ? Buffer.from(name.replace(/["\\]/g, '_')).toString('latin1')
+    : name.replace(/[^A-Za-z0-9._ -]/g, '_') || 'file';
   const encoded = encodeURIComponent(name).replace(/['()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
   return `attachment; filename="${ascii}"; filename*=UTF-8''${encoded}`;
 }

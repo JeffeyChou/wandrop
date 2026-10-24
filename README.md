@@ -46,11 +46,21 @@ You need to move a command, a log snippet or a build artefact from one machine t
 | 💬 **Channels** | 7-character `[0-9a-z]` IDs (`/c/k2z0vm2`), real-time sync over WebSocket, presence avatars |
 | 📝 **Rich text** | Per-message Plain / Markdown switch, GFM tables, KaTeX (`$…$`, `$$…$$`, `\(…\)`, `\[…\]`), code blocks with copy button |
 | ✏️ **Editing** | Edit your own messages (`✎ edited at hh:mm:ss`), one-click copy, delete |
-| 📦 **Files** | Drag & drop or paste to upload, SHA-256 shown, per-file download cap and lifetime; a used-up file stays listed so the uploader can extend it |
+| 📦 **Files** | Drag & drop or paste to upload, SHA-256 shown, per-file download cap and lifetime; a used-up file stays listed so the uploader can extend it; copy a direct download link for curl / wget |
 | ⏯️ **Resumable uploads** | Chunked uploads you can pause and resume; survive dropped connections, page reloads and server restarts |
 | ⏳ **Lifetimes** | Channel owner sets message retention (or "until channel ends") and channel lifetime |
 | 🔐 **Accounts** | Invite-only registration, self-service password change, admin UI and CLI for invite codes |
 | 🎨 **UI** | Light / dark theme, animated ASCII background, works on phones |
+
+### Downloading with curl / wget
+
+The 🔗 button on a file card copies a direct download link. It needs no browser session, so you can fetch the file on another machine:
+
+```bash
+curl -fLOJ 'https://drop.example.com/dl/<file-id>/<secret>'
+```
+
+Each fetch counts against the file's download cap like a browser download, and the link stops working once the file is locked, expires or is deleted. Anyone holding the link can download, so share it like a password.
 
 ### Default rules
 
@@ -127,7 +137,7 @@ docker compose exec wandrop /nodejs/bin/node server/admin.js passwd admin   # fo
 ## Security
 
 - **File names never reach a path or a command.** Blobs are stored under random server-generated IDs. The original name is NFC-normalised, stripped of control characters, bidi overrides (RLO etc.), path separators and shell metacharacters, stored only in the database and always rendered as text. The codebase never calls `child_process`.
-- **Downloads** are always `application/octet-stream` with `Content-Disposition: attachment` (RFC 5987), `nosniff` and `CSP: sandbox`, so uploaded HTML/SVG is never rendered as a page on this origin. A download first exchanges a POST for a 60-second single-use ticket, so link previews and prefetchers cannot burn download counts. The counter is incremented atomically in SQLite, so concurrent requests cannot exceed the limit.
+- **Downloads** are always `application/octet-stream` with `Content-Disposition: attachment` (RFC 5987), `nosniff` and `CSP: sandbox`, so uploaded HTML/SVG is never rendered as a page on this origin. A download first exchanges a POST for a 60-second single-use ticket, so link previews and prefetchers cannot burn download counts. The copied direct link instead carries a random per-file secret (the channel code is not enough to build it); `HEAD` does not count, and known link-preview bots are refused. The counter is incremented atomically in SQLite, so concurrent requests cannot exceed the limit.
 - **Uploads** are chunked and resumable. The declared size is checked against the per-file limit, the uploader's quota, the channel quota and the global quota *before* any byte is accepted, and stays reserved until the upload finishes or is cancelled. Each chunk must start at the server's current offset and is metered while streamed to disk, so a client cannot write past the declared size. The SHA-256 is computed by the server over the finished file.
 - **Web:** strict CSP (no inline scripts, connections only to the same origin), Markdown with raw HTML disabled and DOMPurify sanitisation, HttpOnly + SameSite cookies, same-origin checks for writes and WebSocket upgrades, rate limits on login, registration, password change, upload and send, scrypt password hashing. Changing a password signs out every other session.
 - **Container:** distroless runtime (no shell, no package manager), non-root (uid 65532), read-only root filesystem, `cap_drop: ALL`, `no-new-privileges`, pids/memory/CPU limits. The only writable places are the `/data` volume (SQLite + files, mode 0600) and a `noexec` `/tmp` tmpfs.
